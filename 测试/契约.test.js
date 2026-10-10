@@ -349,6 +349,32 @@ module.exports = function () {
     });
   });
 
+  t.test('两个入口文件必须完全一致（index.html 与 工作台.html）', function () {
+    // 为什么会有两个入口：
+    //   index.html   → GitHub Pages / 静态服务器按惯例找的默认文档
+    //   工作台.html   → 本地双击用的中文名入口
+    // 两份内容相同。重复文件最大的风险是改了一个忘了另一个——
+    // 那会导致"本地打开正常、线上打开是旧版"这种最难排查的问题。
+    var fs = require('fs');
+    var path = require('path');
+    var ROOT = path.resolve(__dirname, '..');
+    var a = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    var b = fs.readFileSync(path.join(ROOT, '工作台.html'), 'utf8');
+    t.eq(a, b, '两个入口文件内容不一致——改了一个请同步另一个（或运行 npm run sync:entry）');
+    // 顺带确认入口引用的都是相对路径，子目录部署才不会 404
+    t.ok(a.indexOf('src="/') < 0, '入口不应使用根绝对路径');
+    t.ok(a.indexOf('href="/') < 0, '入口不应使用根绝对路径');
+  });
+
+  t.test('localStorage 键在 file:// 下不带前缀（避免改目录名就丢进度）', function () {
+    // 键名规则见 界面/存储.js。这里只断言"HTTP 下会分区、file:// 下不分区"这一约定，
+    // 因为改目录名/搬动文件夹导致进度"丢失"是用户最不能接受的失败方式。
+    var src = require('fs').readFileSync(
+      require('path').resolve(__dirname, '..', '界面', '存储.js'), 'utf8');
+    t.ok(src.indexOf("proto !== 'http:'") >= 0, '应按协议判断是否分区');
+    t.ok(src.indexOf('ai-career-workbench/archive/v1') >= 0, '基础键名应保留');
+  });
+
   t.test('任务截止日按本地日期推算，加 N 周不偏一天', function () {
     var a = CP.createBlankArchive();
     a.profile.grade = '大三';

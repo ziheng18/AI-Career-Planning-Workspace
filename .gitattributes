@@ -1,0 +1,18 @@
+# 统一换行符为 LF。
+#
+# 为什么需要：Windows 上 Git 默认 core.autocrlf=true，checkout 时会把 LF 转成 CRLF。
+# 对本项目有两个实际危害：
+#   ① index.html 与 工作台.html 是同一份内容的两份副本，测试里做**逐字节比较**
+#      （测试/契约.test.js）。两边换行不一致就会假失败。
+#   ② 应用运行时用 fs.readFileSync 读 HTML/CSS/JS 做一致性断言，同理受影响。
+# 统一成 LF 后，任何操作系统上 checkout 出来的字节都一致。
+* text=auto eol=lf
+
+# 图片是二进制，不要做任何换行转换
+*.png binary
+*.jpg binary
+*.ico binary
+
+# 素材脚本与文档也是文本，但显式声明避免被当成二进制
+*.ps1 text eol=lf
+*.md  text eol=lf
