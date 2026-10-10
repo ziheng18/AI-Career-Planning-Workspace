@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 职业生涯规划工作台</title>
+<link rel="icon" href="素材/favicon.svg" type="image/svg+xml">
+<!--
+  这是给 GitHub Pages / 静态服务器用的入口页。
+
+  为什么不直接把工作台的内容放在这里：
+  工作台的 9 个页面用 hash 路由（#home / #riasec …），而 hash **不会随
+  meta refresh 跳转传递**。所以这里只做一次干净的重定向，把用户带到
+  「工作台.html」，之后的 hash 路由都在那边正常运作。
+
+  本地双击打开时用不到这个文件——直接双击 工作台.html 即可。
+-->
+<meta http-equiv="refresh" content="0; url=%E5%B7%A5%E4%BD%9C%E5%8F%B0.html">
+<style>
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: #f5f7f8; color: #14202b;
+  }
+  .box { text-align: center; padding: 32px; max-width: 520px; }
+  .mark {
+    width: 46px; height: 46px; margin: 0 auto 16px; border-radius: 12px;
+    display: grid; place-items: center; color: #fff; font-weight: 700;
+    background: linear-gradient(140deg, #0f766e, #14b8a6);
+  }
+  h1 { font-size: 19px; margin: 0 0 8px; }
+  p { font-size: 13.5px; color: #4c5a68; line-height: 1.7; margin: 0 0 18px; }
+  a.btn {
+    display: inline-block; padding: 9px 18px; border-radius: 9px;
+    background: #0f766e; color: #fff; text-decoration: none; font-size: 13.5px;
+  }
+  a.btn:hover { background: #0b5b55; }
+  .hint { margin-top: 14px; font-size: 12px; color: #8894a2; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <div class="mark">AI</div>
+    <h1>人工智能专业职业生涯规划工作台</h1>
+    <p>正在打开工作台……如果浏览器没有自动跳转，请点下面的按钮。</p>
+    <a class="btn" href="%E5%B7%A5%E4%BD%9C%E5%8F%B0.html">进入工作台</a>
+    <div class="hint">本页面完全在浏览器本地运行，作答不会上传到任何服务器。</div>
+  </div>
+</body>
+</html>

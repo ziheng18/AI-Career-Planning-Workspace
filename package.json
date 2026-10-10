@@ -1,0 +1,18 @@
+{
+  "name": "ai-career-workbench",
+  "version": "0.3.0",
+  "private": true,
+  "description": "人工智能专业职业生涯规划学习实践工作台（纯本地离线单页应用，零运行时依赖）",
+  "scripts": {
+    "test": "node 测试/run.js && node 测试/smoke.cjs",
+    "test:logic": "node 测试/run.js",
+    "test:ui": "node 测试/smoke.cjs",
+    "test:browser": "node 测试/浏览器诊断.cjs",
+    "test:mobile": "node 测试/mobile.cjs",
+    "test:touch": "node 测试/触摸诊断.cjs",
+    "test:pdf": "node 测试/导出PDF.cjs",
+    "test:http": "node 测试/HTTP部署自检.cjs",
+    "test:all": "npm test && npm run test:browser && npm run test:mobile && npm run test:touch && npm run test:pdf && npm run test:http",
+    "demo": "node 测试/生成示例档案.cjs"
+  }
+}

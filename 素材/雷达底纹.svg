@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <!-- 雷达六边形底纹：纯代码绘制。
+       原本想用文生图生成，但模型无法精确控制这种"极淡的几何结构"（生成结果为空白）。
+       代码绘制的好处：几何精确、任意缩放不糊、体积只有几百字节。 -->
+  <defs>
+    <g id="hex">
+      <polygon points="200,40 338,120 338,280 200,360 62,280 62,120" fill="none" stroke="#0f766e" stroke-width="1"/>
+      <polygon points="200,80 306,142 306,258 200,320 94,258 94,142" fill="none" stroke="#0f766e" stroke-width="1"/>
+      <polygon points="200,120 275,163 275,237 200,280 125,237 125,163" fill="none" stroke="#0f766e" stroke-width="1"/>
+      <polygon points="200,160 243,185 243,215 200,240 157,215 157,185" fill="none" stroke="#0f766e" stroke-width="1"/>
+    </g>
+  </defs>
+  <g opacity="0.5">
+    <use href="#hex"/>
+    <g stroke="#0f766e" stroke-width="1" opacity="0.55">
+      <line x1="200" y1="200" x2="200" y2="40"/>
+      <line x1="200" y1="200" x2="338" y2="120"/>
+      <line x1="200" y1="200" x2="338" y2="280"/>
+      <line x1="200" y1="200" x2="200" y2="360"/>
+      <line x1="200" y1="200" x2="62" y2="280"/>
+      <line x1="200" y1="200" x2="62" y2="120"/>
+    </g>
+    <circle cx="200" cy="200" r="2.5" fill="#0f766e"/>
+  </g>
+</svg>
