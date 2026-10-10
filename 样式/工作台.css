@@ -436,6 +436,17 @@ textarea { min-height: 76px; resize: vertical; }
 .yp-body { flex: 1 1 auto; min-width: 0; }
 .yp-action { font-size: 13px; line-height: 1.6; }
 .yp-note { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+/* 个性化要点：取自本人测评结果（能力缺口、兴趣方向、目标岗位门槛），
+   与制度性骨架视觉上区分开，让人一眼看出哪些是"针对我的" */
+.yp-focus {
+  list-style: none; margin: 6px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.yp-focus li {
+  font-size: 12px; line-height: 1.55; color: var(--brand-ink);
+  background: var(--brand-soft); border-radius: var(--radius-sm);
+  padding: 4px 9px;
+}
 @media (max-width: 620px) {
   .yearplan li { gap: 8px; }
   .yp-year { flex-basis: 40px; font-size: 12px; }

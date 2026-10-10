@@ -420,12 +420,17 @@
       return x.status !== 'done' && x.due && x.due < CP.dateOnly();
     }).length;
 
-    // 逐年规划建议：只读呈现，锚到具体学年
-    var planRows = CP.yearPlan(a, res.decision, res.match);
+    // 逐年规划建议：只读呈现，锚到具体学年，并附带取自本人测评结果的个性化要点
+    var planRows = CP.yearPlan(a, res.score, res.decision, res.match);
     var yearPlanHtml = planRows.length
       ? '<ol class="yearplan">' + planRows.map(function (r) {
         return '<li><b class="yp-year">' + esc(r.year) + '</b>'
           + '<div class="yp-body"><div class="yp-action">' + esc(r.action) + '</div>'
+          + (r.focus && r.focus.length
+            ? '<ul class="yp-focus">' + r.focus.map(function (f) {
+              return '<li>' + esc(f) + '</li>';
+            }).join('') + '</ul>'
+            : '')
           + '<div class="yp-note">' + esc(r.note) + '</div></div></li>';
       }).join('') + '</ol>'
       : '<div class="empty">先完成决策输入，这里会给出逐年安排。</div>';
@@ -450,10 +455,11 @@
       // 长期规划建议：系统给出的逐年安排，不是填空。
       // 学生最缺的不是"写下来的地方"，而是"每个阶段该做什么"的判断。
       + '<div class="card" style="margin-top:14px"><div class="card-head"><h3>逐年规划建议</h3>'
-      + '<span class="tag">系统建议 · 按你当前的年级起算</span></div>'
+      + '<span class="tag tag-brand">系统建议 · 结合你的测评结果</span></div>'
       + '<div style="font-size:12.5px;color:var(--ink-2);margin-bottom:10px">'
-      + '下面是按主路径「' + esc(res.decision.primary ? res.decision.primary.name : '—')
-      + '」和你的年级给出的阶段安排。已经过去的学年不会出现。</div>'
+      + '从「' + esc(a.profile.grade || '大三') + '」起算的阶段安排，已经过去的学年不会出现。'
+      + '骨架对各专业方向都一样；下面每条绿底的**重点**取自你自己的测评结果'
+      + '（能力缺口、兴趣方向、目标岗位的学历门槛），不是通用建议。</div>'
       + yearPlanHtml
       + '</div>'
 

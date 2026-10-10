@@ -110,18 +110,57 @@ El.prototype.matches = function (sel) {
   }
   return any;
 };
+/**
+ * 支持 `A B`（后代）、`A > B`（直接子元素）、`A + B`（相邻兄弟）与单一复合选择器。
+ *
+ * 为什么必须区分组合符：曾经把 `>` 直接 filter 掉，于是 `.yearplan > li`
+ * 悄悄退化成 `.yearplan li`，把嵌套的 li 也算了进来——测试因此得出
+ * 与真实浏览器不同的结构结论。选择器语义错了，断言就失去意义。
+ */
 El.prototype.querySelectorAll = function (sel) {
-  var parts = sel.trim().split(/\s+(?![^\[]*\])/).filter(function (p) { return p !== '>' && p !== '+' && p !== '~'; });
-  var last = parts[parts.length - 1];
-  var pool = this.descendants();
-  if (parts.length > 1) {
-    var ancestorSel = parts[0];
-    var anc = pool.filter(function (n) { return n.matches(ancestorSel); });
-    var allow = [];
-    anc.forEach(function (a) { allow = allow.concat(a.descendants()); });
-    pool = allow;
+  var parts = sel.trim().split(/\s+(?![^\[]*\])/).filter(Boolean);
+  if (!parts.length) return [];
+
+  // 从右往左拆出「选择器 + 组合符」链。
+  // 注意 comb 记在**左侧**元素上：{sel:'.a', comb:'>'} 表示"由 .a 经 > 到下一个"。
+  // 因此下面的循环必须读 chain[i-1].comb，而不是 chain[i].comb——
+  // 错位一格会让 `>` 悄悄退化成后代匹配（曾经的 bug：.a > li 返回了 3 个 li）。
+  var chain = [];
+  var buf = null;
+  parts.forEach(function (p) {
+    if (p === '>' || p === '+' || p === '~') { if (buf) chain.push({ sel: buf, comb: p }); buf = null; }
+    else if (buf === null) buf = p;
+    else { chain.push({ sel: buf, comb: ' ' }); buf = p; }
+  });
+  if (buf) chain.push({ sel: buf, comb: null });
+
+  var matched = this.descendants().filter(function (n) { return n.matches(chain[0].sel); });
+
+  for (var i = 1; i < chain.length; i++) {
+    var comb = chain[i - 1].comb;              // ← 组合符在左元素上
+    var next = [];
+    matched.forEach(function (a) {
+      if (comb === '>') {
+        next = next.concat(a.children.filter(function (c) { return c.matches(chain[i].sel); }));
+      } else if (comb === '+') {
+        var sib = a.parent && a.parent.children;
+        if (sib) {
+          var idx = sib.indexOf(a);
+          if (idx >= 0 && sib[idx + 1] && sib[idx + 1].matches(chain[i].sel)) next.push(sib[idx + 1]);
+        }
+      } else if (comb === '~') {
+        var sib2 = a.parent && a.parent.children;
+        if (sib2) {
+          var k = sib2.indexOf(a);
+          sib2.slice(k + 1).forEach(function (s) { if (s.matches(chain[i].sel)) next.push(s); });
+        }
+      } else {
+        next = next.concat(a.descendants().filter(function (n) { return n.matches(chain[i].sel); }));
+      }
+    });
+    matched = next;
   }
-  return pool.filter(function (n) { return n.matches(last); });
+  return matched.filter(function (n, i) { return matched.indexOf(n) === i; });   // 去重
 };
 El.prototype.querySelector = function (sel) { return this.querySelectorAll(sel)[0] || null; };
 El.prototype.closest = function (sel) {
@@ -192,10 +231,19 @@ El.prototype.click = function () {
    只支持页面代码实际会用到的子集：普通标签、带引号/不带值的属性、文本、注释、自闭合标签、
    以及 select/table/ul 等场景下的隐式闭合。目的是让查询能命中，而不是做一个浏览器。 */
 var VOID = { br: 1, img: 1, input: 1, hr: 1, meta: 1, link: 1, col: 1, source: 1, area: 1, base: 1, wbr: 1 };
+// 打开一个新标签时，是否要隐式闭合已在栈里的某个祖先标签。
+// 例如 <li>a<li>b：第二个 li 会先把第一个关掉。
 var AUTO_CLOSE = {
   li: { li: 1 }, tr: { tr: 1 }, td: { td: 1, th: 1 }, th: { td: 1, th: 1 },
   option: { option: 1 }, p: { p: 1, div: 1, ul: 1, ol: 1, table: 1, section: 1, h1: 1, h2: 1, h3: 1, h4: 1 },
   thead: { tbody: 1, tfoot: 1 }, tbody: { tbody: 1, tfoot: 1 }
+};
+// 哪些标签的结束标签可以省略（即"允许被隐式闭合"）。
+// 查找目标祖先时遇到不属于此集合的标签就停下——那是边界，不能跨过。
+// 注意不能拿 AUTO_CLOSE 当这个判据：它的键是"触发闭合的标签"，
+// 例如 ul 是 <p> 的闭合触发者，但 ul 自身不能省略结束标签。
+var CLOSABLE = {
+  li: 1, tr: 1, td: 1, th: 1, option: 1, p: 1, thead: 1, tbody: 1, tfoot: 1
 };
 
 function parseHTML(str) {
@@ -248,13 +296,18 @@ function parseHTML(str) {
 
     var ac = AUTO_CLOSE[tagName.toLowerCase()];
     if (ac) {
-      // 若栈顶就是需要被隐式闭合的标签，先弹出
+      // 隐式闭合：从栈顶往下逐层找"要闭合的那个祖先"，沿途只允许跨过可省略结束标签的层。
+      //
+      // 曾经的写法是往下遇到第一个非 void 元素就 break，于是 `<li><ul><li>` 里的内层 li
+      // 撞上中间那层 `ul` 就放弃闭合——嵌套 li 被当兄弟节点平铺，DOM 与真实浏览器不一致。
+      var target = -1;
       for (var j = stack.length - 1; j > 0; j--) {
-        var top = stack[j].el;
-        if (!top) break;
-        if (ac[top.tagName.toLowerCase()]) { stack.length = j; break; }
-        if (top.tagName.toLowerCase() === tagName.toLowerCase()) break;
+        var tag = stack[j].el ? stack[j].el.tagName.toLowerCase() : '';
+        if (!tag) break;
+        if (ac[tag]) { target = j; break; }     // 找到需要被闭合的祖先
+        if (!CLOSABLE[tag]) break;              // 遇到不可省略结束标签的层：这是边界，停下
       }
+      if (target > 0) stack.length = target;
     }
     if (!VOID[tagName.toLowerCase()] && !m[4]) stack.push({ el: e, children: e.children });
   }
@@ -1499,7 +1552,8 @@ test('行动计划页给出逐年规划建议，锚到具体学年', function ()
   eq(byId('longTermPlan'), null, '不应再有长远打算 textarea');
   eq(q('.yearplan').length, 1, '应有逐年规划建议列表');
 
-  var items = q('.yearplan li');
+  // 必须用子选择器：.yearplan li 会把"个性化要点"那一层嵌套的 li 也算进来
+  var items = q('.yearplan > li');
   ok(items.length >= 2, '大三应看到大三、大四两条，实际 ' + items.length + ' 条');
   eq(q('.yp-year')[0].textContent, '大三', '第一条应从当前年级开始');
 
@@ -1515,6 +1569,13 @@ test('行动计划页给出逐年规划建议，锚到具体学年', function ()
   eq(notes.length, items.length, '每条都应有一句判断标准');
   bodies.forEach(function (b, i) { ok(b.textContent.length > 8, '第 ' + i + ' 条行动太短'); });
   notes.forEach(function (n, i) { ok(n.textContent.length > 6, '第 ' + i + ' 条判断标准太短'); });
+
+  // 个性化要点要渲染出来，且必须取自实测数据（带具体分值 / 岗位名）
+  var focusItems = q('.yp-focus > li');
+  ok(focusItems.length >= 1, '行动页应显示个性化要点，实际 ' + focusItems.length + ' 条');
+  var focusText = focusItems.map(function (x) { return x.textContent; }).join('；');
+  ok(focusText.indexOf('重点补') >= 0, '应点出要补的能力维度，实际：' + focusText);
+  ok(/还差 \d+ 分/.test(focusText), '缺口应带具体分值，实际：' + focusText);
 });
 
 test('逐年规划建议随年级变化，起点取当前学年', function () {
@@ -1536,14 +1597,14 @@ test('逐年规划建议随年级变化，起点取当前学年', function () {
 
 test('yearPlan 在缺少决策结果时也能给出建议', function () {
   var a = CP.demoArchive();
-  var rows = CP.yearPlan(a, null, null);
+  var rows = CP.yearPlan(a, null, null, null);
   ok(rows.length > 0, '没有 decision 时也应给出学年安排');
   rows.forEach(function (r) {
     ok(r.year && r.action && r.note, '每条都应有 year/action/note');
   });
   // 未知年级回退到大三，不应崩
   a.profile.grade = '';
-  ok(CP.yearPlan(a, null, null).length > 0, '年级为空时应回退到默认');
+  ok(CP.yearPlan(a, null, null, null).length > 0, '年级为空时应回退到默认');
 });
 
 test('逐年规划建议会进入导出的报告正文', function () {
@@ -1715,6 +1776,105 @@ test('清空后能重新开始，且不残留旧数据', function () {
   CP.ui.refreshProgress();
   eq(byId('sideProgressText').textContent, '0%');
   eq(q('.nav-item.done', byId('nav')).length, 0, '清空后不应有完成标记');
+});
+
+/* ============================================================
+ * 假 DOM 的测试基础设施本身（选择器引擎、HTML 解析器、属性语义）
+ *
+ * 为什么值得单独测：这些缺陷不会让产品报错，只会让**其它测试得出错误结论**——
+ * 例如 `.yearplan > li` 悄悄退化成 `.yearplan li`，断言就把嵌套的 li 也算了进去，
+ * 于是一个正确的实现被报成失败（反过来，一个错误的实现也可能被放过）。
+ * 基础设施错了，上面所有断言的可信度都归零。
+ * ============================================================ */
+
+test('选择器引擎：组合符语义与浏览器一致', function () {
+  var host = byId('view');
+  host.innerHTML = '<ol class="a">'
+    + '<li><b>x</b><ul class="b"><li>1</li><li>2</li></ul></li>'
+    + '<li><b>y</b></li>'
+    + '</ol>';
+
+  eq(q('.a > li').length, 2, '直接子元素：应只有两个顶层 li');
+  eq(q('.a li').length, 4, '后代：应包含嵌套的两个 li');
+  eq(q('.b > li').length, 2, '嵌套列表的直接子元素');
+  eq(q('ol > li').length, 2, '用标签名做父级');
+  eq(q('.a > b').length, 0, 'b 在 li 里面，不是 ol 的直接子元素');
+
+  host.innerHTML = '<div class="p"><span>1</span><span>2</span><i>3</i></div>';
+  eq(q('.p > span').length, 2, '直接子元素');
+  eq(q('span + span').length, 1, '相邻兄弟');
+  eq(q('span ~ i').length, 1, '通用兄弟');
+  eq(q('i + span').length, 0, '顺序反了不应命中');
+
+  // 注意：真实浏览器会为 <table> 隐式插入 tbody，所以这里显式写 tbody，
+  // 避免让测试依赖"浏览器会不会自动补 tbody"这种差异行为。
+  host.innerHTML = '<table><tbody><tr><td>a</td><td>b</td></tr>'
+    + '<tr><td>c</td><td>d</td></tr></tbody></table>';
+  eq(q('tbody > tr').length, 2, '表格行');
+  eq(q('tr > td').length, 4, '单元格');
+  eq(q('table td').length, 4, '跨层后代');
+});
+
+test('HTML 解析器：嵌套 li 不被平铺成兄弟节点', function () {
+  // 回归：`<li><ul><li>` 里内层 li 曾经被当成外层 li 的兄弟，
+  // 于是所有基于嵌套列表结构的断言都会得出错误结论。
+  var host = byId('view');
+  host.innerHTML = '<ol class="a"><li><b>B1</b><div class="body">'
+    + '<div class="act">A1</div><ul class="focus"><li>F1</li><li>F2</li></ul>'
+    + '<div class="note">N1</div></div></li><li><b>B2</b></li></ol>';
+
+  eq(q('.a').length, 1, '应有一个 ol');
+  eq(q('.a')[0].children.length, 2, 'ol 应只有两个直接子 li，实际 ' + q('.a')[0].children.length);
+
+  // 嵌套层级必须保持
+  eq(q('.body > .act').length, 1, 'act 应在 body 内');
+  eq(q('.body > .focus').length, 1, 'focus 应在 body 内');
+  eq(q('.body > .note').length, 1, 'note 应在 body 内');
+  eq(q('.focus > li').length, 2, 'focus 里应有两个 li');
+  eq(q('.focus').length, 1, 'focus 只应有一个');
+
+  // textContent 要聚合整棵子树
+  ok(q('.body')[0].textContent.indexOf('N1') >= 0, 'body 的文本应包含 note 的内容');
+});
+
+test('HTML 解析器：表格与段落的隐式闭合', function () {
+  var host = byId('view');
+  host.innerHTML = '<table><tr><td>a<td>b<tr><td>c<td>d</table>';
+  eq(q('tr').length, 2, '未闭合的 tr 应被隐式闭合');
+  eq(q('td').length, 4, '未闭合的 td 应被隐式闭合');
+
+  host.innerHTML = '<div><p>一<p>二</div>';
+  eq(q('p').length, 2, '未闭合的 p 应被隐式闭合');
+});
+
+test('假 DOM：布尔与取值属性反映到元素上', function () {
+  var host = byId('view');
+  host.innerHTML = '<input type="checkbox" checked><input type="text" value="abc">'
+    + '<textarea>多行</textarea><button disabled>按钮</button>';
+  var inputs = q('input');
+  eq(inputs[0].checked, true, 'checked 属性应反映到属性上');
+  eq(inputs[1].checked, false, '未勾选应为 false');
+  eq(inputs[1].value, 'abc', 'value 应能读到');
+  eq(q('textarea')[0].value, '多行', 'textarea 的 value 读文本内容');
+  eq(q('button')[0].disabled, true, 'disabled 应能读到');
+
+  var fired = 0;
+  inputs[0].onchange = function () { fired += 1; };
+  inputs[0].click();
+  eq(inputs[0].checked, false, '点击后应取消勾选');
+  eq(fired, 1, '点击应触发一次 change');
+});
+
+test('假 DOM：style 写入会落到 style 特性上', function () {
+  // 回归：style 曾经只是个空对象，写 `el.style.width = '50%'` 不落到特性上，
+  // 于是断言 `style.width !== '0%'` 恒真——进度条压根没更新也照样通过。
+  var host = byId('view');
+  host.innerHTML = '<i id="bar" style="width:0%"></i>';
+  var bar = byId('bar');
+  eq(bar.style.width, '0%', '应能读到模板里写的初始值');
+  bar.style.width = '42%';
+  eq(bar.style.width, '42%', '写入后应能读回');
+  ok(bar.getAttribute('style').indexOf('42%') >= 0, 'style 特性也应同步更新');
 });
 
 /* ============================================================ */

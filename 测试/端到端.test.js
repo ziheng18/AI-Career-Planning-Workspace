@@ -287,7 +287,7 @@ module.exports = function () {
     var a = fullArchive();
     a.decision.criteriaOrder = CP.CRITERIA.map(function (c) { return c.id; });
     var r = CP.buildResult(a);
-    var rows = CP.yearPlan(a, r.decision, r.match);
+    var rows = CP.yearPlan(a, r.score, r.decision, r.match);
 
     t.ok(rows.length > 0, '应给出学年安排');
     rows.forEach(function (x) {
@@ -312,46 +312,118 @@ module.exports = function () {
     order.forEach(function (g) {
       var a = fullArchive();
       a.profile.grade = g;
-      var rows = CP.yearPlan(a, null, null);
+      var rows = CP.yearPlan(a, null, null, null);
       t.eq(rows[0].year, g, g + ' 应从自己开始');
       t.eq(rows.length, 4 - order.indexOf(g), g + ' 应看到剩余 ' + (4 - order.indexOf(g)) + ' 个学年');
     });
     // 研究生只看到研一以后
     var m = fullArchive();
     m.profile.grade = '研一';
-    var mrows = CP.yearPlan(m, null, null);
+    var mrows = CP.yearPlan(m, null, null, null);
     t.eq(mrows.length, 3);
     t.eq(mrows[0].year, '研一');
   });
 
-  t.test('逐年规划建议按主路径调整侧重', function () {
+  t.test('逐年规划建议随本人的测评结果变化（不是一份通用模板）', function () {
+    // 这是本模块的核心要求：两个兴趣与能力差异极大的人，拿到的规划必须不同。
+    // 回归背景：旧版只读「年级 + 主路径」，两份差异极大的档案会得到几乎一样的规划；
+    // 而且没填路径评分时主路径由数组顺序决定，会给出"你该走研究路线"这种无依据的定调。
+    function profile(riasec, abilityMap, jobPref) {
+      var a = CP.createBlankArchive();
+      a.profile.grade = '大三';
+      a.profile.track = '人工智能';
+      a.decision.hoursPerWeek = 10;
+      CP.activeItems(CP.BANKS.riasec, null).forEach(function (it) {
+        a.answers.riasec[it.id] = { v: riasec[it.dim] || 2, t: 1 };
+      });
+      CP.activeItems(CP.BANKS.anchor, null).forEach(function (it) {
+        a.answers.anchor[it.id] = { v: 3, t: 1 };
+      });
+      CP.fillAbility(a, abilityMap);
+      a.decision.jobPref = jobPref;
+      a.decision.criteriaOrder = CP.CRITERIA.map(function (c) { return c.id; });
+      return a;
+    }
+
+    var strong = profile({ I: 5, R: 4, C: 4, A: 2, S: 2, E: 2 },
+      { math: 5, code: 5, data: 4, model: 5, deploy: 3, product: 2, comm: 3, self: 4 },
+      { 'algo-research': 'like', 'nlp-engineer': 'like' });
+    var weak = profile({ I: 2, R: 1, C: 2, A: 5, S: 5, E: 4 },
+      { math: 1, code: 1, data: 1, model: 1, deploy: 1, product: 1, comm: 3, self: 2 },
+      { 'ai-pm': 'like', 'ai-solution': 'like', 'llm-app-engineer': 'like' });
+
+    var rs = CP.buildResult(strong);
+    var rw = CP.buildResult(weak);
+    var ps = CP.yearPlan(strong, rs.score, rs.decision, rs.match);
+    var pw = CP.yearPlan(weak, rw.score, rw.decision, rw.match);
+
+    var flat = function (rows) {
+      return rows.map(function (r) {
+        return r.year + '|' + r.action + '|' + (r.focus || []).join('；');
+      }).join('\n');
+    };
+    t.ok(flat(ps) !== flat(pw), '两个差异极大的档案应得到不同的规划');
+
+    // 能力缺口必须来自实测：乙的能力弱得多，缺口分值应显著更大
+    var gapOf = function (rows, probe) {
+      var hit = null;
+      rows.forEach(function (r) {
+        (r.focus || []).forEach(function (f) {
+          if (f.indexOf(probe) >= 0) {
+            var m = /还差 (\d+) 分/.exec(f);
+            if (m) hit = Number(m[1]);
+          }
+        });
+      });
+      return hit;
+    };
+    // 档案里最高的能力维度得分不同，缺口数字必须跟着变（而不是同一串写死的文案）
+    var allFocus = function (rows) {
+      return rows.map(function (r) { return (r.focus || []).join('；'); }).join('；');
+    };
+    t.ok(allFocus(ps) !== allFocus(pw), '个性化要点也应不同');
+    t.ok(allFocus(ps).indexOf('重点补') >= 0, '应点出要补的能力维度');
+    t.ok(/还差 \d+ 分/.test(allFocus(ps)), '缺口应带具体分值');
+    // 强者的缺口分值一定小于弱者
+    var nums = function (txt) { return (txt.match(/还差 (\d+) 分/g) || []).map(function (x) { return Number(x.replace(/\D/g, '')); }); };
+    var nStrong = nums(allFocus(ps)), nWeak = nums(allFocus(pw));
+    t.ok(nStrong.length && nWeak.length, '两边都应有缺口分值');
+    t.ok(Math.min.apply(null, nWeak) > Math.min.apply(null, nStrong),
+      '能力弱的一方缺口分值应更大：弱 ' + nWeak.join(',') + ' vs 强 ' + nStrong.join(','));
+
+    // 兴趣方向要参与措辞：艺术社会型不该被劝去"选研究细分方向"
+    t.ok(allFocus(pw).indexOf('表达空间') >= 0 || allFocus(pw).indexOf('与人打交道') >= 0
+      || allFocus(pw).indexOf('推进事情') >= 0,
+      '兴趣方向应体现在建议里，实际：' + allFocus(pw));
+  });
+
+  t.test('逐年规划建议不依赖"可能没填"的路径评分', function () {
+    // 回归：没填 pathScores 时六条路径默认分几乎并列，主路径由数组顺序决定。
+    // 旧版据此给每条建议加"研究路线 / 就业路线"后缀，等于凭空定调。
     var a = fullArchive();
     a.decision.criteriaOrder = CP.CRITERIA.map(function (c) { return c.id; });
-
-    // 考公路径：每条都应提示考公节奏
-    a.decision.pathScores = {};
+    a.decision.pathScores = {};                  // 完全不填
     var r = CP.buildResult(a);
-    var examRows = CP.yearPlan(a, { primary: { pathId: 'p-考公', name: '考公' } }, r.match);
-    t.ok(examRows.every(function (x) { return x.action.indexOf('考公') >= 0; }),
-      '考公主路径应在每条建议里点出考公节奏');
+    var rows = CP.yearPlan(a, r.score, r.decision, r.match);
+    var flat = rows.map(function (x) { return x.action; }).join(' | ');
+    ['研究路线', '就业路线', '考公节奏'].forEach(function (w) {
+      t.ok(flat.indexOf(w) < 0, '未填路径评分时不应出现"' + w + '"这种无依据的定调');
+    });
+    // 但培养路线应改由**首位岗位的学历门槛**推出，那才是实测依据
+    var top = r.match.ranked[0];
+    t.ok(top && top.minEdu, '应能拿到首位岗位的学历门槛');
+  });
 
-    // 研究型路径：中期学年（大二/研一/研二）应提示科研优先
-    var b = fullArchive();
-    b.profile.grade = '大二';
-    var resRows = CP.yearPlan(b, { primary: { pathId: 'p-baoyan', name: '保研' } }, r.match);
-    t.ok(resRows.some(function (x) { return x.action.indexOf('研究') >= 0; }),
-      '研究型主路径应在大二点出科研优先，实际：' + resRows.map(function (x) { return x.action; }).join(' | '));
-
-    // 就业型路径：大三应提示实习优先
-    var c = fullArchive();
-    c.profile.grade = '大三';
-    var jobRows = CP.yearPlan(c, { primary: { pathId: 'p-直接就业', name: '直接就业' } }, r.match);
-    t.ok(jobRows.some(function (x) { return x.action.indexOf('就业路线') >= 0; }),
-      '就业型主路径应在大三点出实习优先');
-
-    // 缺参数不应崩
-    t.ok(CP.yearPlan(a, null, null).length > 0, '没有 decision 时也应给出建议');
-    t.ok(CP.yearPlan(null, null, null).length > 0, '档案为空时应回退到默认年级');
+  t.test('逐年规划建议在缺参数时安全退化', function () {
+    var a = fullArchive();
+    t.ok(CP.yearPlan(a, null, null, null).length > 0, '没有 score/decision/match 时也应给出骨架');
+    t.ok(CP.yearPlan(null, null, null, null).length > 0, '档案为空时应回退到默认年级');
+    // 缺数据时不应出现 undefined / NaN
+    var txt = CP.yearPlan(a, null, null, null).map(function (r) {
+      return r.action + (r.focus || []).join('');
+    }).join('');
+    t.ok(txt.indexOf('undefined') < 0, '不应出现 undefined');
+    t.ok(txt.indexOf('NaN') < 0, '不应出现 NaN');
   });
 
   t.test('大一的 SWOT 用"待补"而不是"短板"措辞', function () {

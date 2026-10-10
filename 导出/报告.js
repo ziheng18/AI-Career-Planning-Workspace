@@ -526,13 +526,14 @@
     }
 
     // 逐年规划建议：锚到具体学年，放在任务清单之后、复盘之前
-    var planRows = CP.yearPlan(a, res.decision, res.match);
+    var planRows = CP.yearPlan(a, res.score, res.decision, res.match);
     if (planRows.length) {
       h(2, '5.3 逐年规划建议');
-      p('按主路径「' + (res.decision.primary ? res.decision.primary.name : '—')
-        + '」，从当前年级「' + (a.profile.grade || '—') + '」起算的阶段安排：');
+      p('从当前年级「' + (a.profile.grade || '—') + '」起算的阶段安排。'
+        + '缩进项是根据本人的测评结果给出的重点，不是通用建议。');
       planRows.forEach(function (r) {
-        p('- **' + r.year + '**：' + r.action + '　（' + r.note + '）');
+        p('- **' + r.year + '**：' + r.action);
+        (r.focus || []).forEach(function (f) { p('    - ' + f); });
       });
     }
 
@@ -1141,11 +1142,18 @@
               : ((x.note || '').indexOf('主路径') >= 0 ? '路径里程碑' : '—')];
         }))
         : '<p>尚未生成行动计划。</p>')
-      + (CP.yearPlan(a, res.decision, res.match).length
+      + (CP.yearPlan(a, res.score, res.decision, res.match).length
         ? '<h3>5.3 逐年规划建议</h3>'
-        + '<ul>' + CP.yearPlan(a, res.decision, res.match).map(function (r) {
+        + '<p>从当前年级「' + esc(a.profile.grade || '—') + '」起算的阶段安排。'
+        + '每一条下的重点是本人测评结果里的实际缺口与方向，不是通用建议。</p>'
+        + '<ul>' + CP.yearPlan(a, res.score, res.decision, res.match).map(function (r) {
           return '<li><b>' + esc(r.year) + '</b>：' + esc(r.action)
-            + '　　　<span style="color:#555">' + esc(r.note) + '</span></li>';
+            + ((r.focus && r.focus.length)
+              ? '<ul>' + r.focus.map(function (f) {
+                return '<li style="color:' + '#0b5b55' + '">' + esc(f) + '</li>';
+              }).join('') + '</ul>'
+              : '')
+            + '<span style="color:#555">' + esc(r.note) + '</span></li>';
         }).join('') + '</ul>'
         : '')
       + ((a.reviews || []).length

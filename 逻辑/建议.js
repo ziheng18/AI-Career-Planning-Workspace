@@ -255,9 +255,15 @@
    * 为什么必须带"大几 / 研几"：职业规划里最常见的失败是"知道要努力，但不知道现在该做什么"。
    * 所以每一条都锚到具体学年。起点取本人当前年级——大一看到四年，研一看到两年，
    * 已经过去的年份不再出现。
+   *
+   * 骨架（大一打基础 → 大四秋招）是**制度性的**，对所有人一样；但每一年附加的
+   * 「重点补什么」和「往哪个方向做」取自本人的测评结果，见 buildFocus：
+   *   · 能力缺口：直接来自该岗位的实际缺口（match.ranked[0].drags），不是通用句子
+   *   · 兴趣方向：按霍兰德代码换词。A/S 强的人被劝去"选研究细分方向"是错的
+   *   · 培养路线：看首位岗位的学历门槛（实测），而不是用户可能根本没填的路径评分
    * ============================================================ */
 
-  /** 每个学年节点的建议：action 是这一阶段该产出什么，note 是判断标准 */
+  /** 每个学年节点的制度性骨架：action 是这一阶段该产出什么，note 是判断标准 */
   var YEAR_PLAN = {
     '大一': [
       { year: '大一', action: '把数学与编程的基础课学扎实，同时按兴趣方向做一个小项目', note: '先确认"我愿意为它持续投入时间"，比早定岗位更重要' },
@@ -291,38 +297,140 @@
     ]
   };
 
+  /** 霍兰德代码 → 这一年的行动该往哪个方向偏。用第一个强倾向即可。 */
+  var INTEREST_DIRECTION = {
+    R: '往能上手、能做出实体成果的方向（设备、工具、可演示的系统）',
+    I: '往需要钻原理、做分析的方向（复现、实验、把"为什么"搞清）',
+    A: '往有表达空间的方向（界面、交互、内容生成这类能看出个人风格的东西）',
+    S: '往要与人打交道的方向（教学、协作、把技术讲给不懂的人听）',
+    E: '往要推进事情的方向（把一个想法落成有人用的东西，协调资源与预期）',
+    C: '往要求严谨积累的方向（数据治理、流程规范、把细节做扎实）'
+  };
+
+  /**
+   * 算出"这个人"的个性化要点。
+   * 所有输入都可能缺失（测评没做完就来看这一栏），缺了不硬编，返回空值让调用方退化。
+   *
+   * @param {Object} score    scoreAll 的结果（直接传入，**不要**从 archive.computed 里取：
+   *                          结果刚算完时那份快照还没落回档案，会拿到 undefined）
+   * @param {Object} decision decidePaths 的结果
+   * @param {Object} match    matchJobs 的结果
+   */
+  function buildFocus(score, decision, match) {
+    var out = { gaps: [], interest: null, track: null };
+    var top = (match && match.ranked && match.ranked[0]) || null;
+
+    // ① 能力缺口：直接取实测缺口，最多两个
+    if (top && top.drags && top.drags.length) {
+      out.gaps = top.drags.slice(0, 2).map(function (d) {
+        return { label: d.label, gap: d.gap };
+      });
+    }
+
+    // ② 兴趣方向：取霍兰德代码第一位
+    var code = (score && score.holland && score.holland.code) ? String(score.holland.code) : '';
+    if (code) {
+      var dim = code.charAt(0).toUpperCase();
+      if (INTEREST_DIRECTION[dim]) {
+        out.interest = { code: code, dim: dim, text: INTEREST_DIRECTION[dim] };
+      }
+    }
+
+    // ③ 培养路线：看首位岗位的学历门槛（实测出来的），而不是用户可能没填的路径评分。
+    //    旧版直接看 decision.primary.pathId——但没填路径评分时六条路径几乎并列，
+    //    主路径实际由数组顺序决定，会给出"你该走研究路线"这种毫无依据的定调。
+    if (top && top.minEdu) {
+      var edu = String(top.minEdu);
+      var needPostgrad = /硕|博|研究生/.test(edu);
+      out.track = {
+        research: needPostgrad,
+        text: needPostgrad
+          ? '目标岗位「' + top.name + '」要求' + edu + '，升学是这条路上绕不开的一步'
+          : '目标岗位「' + top.name + '」' + edu + '即可投递，实习与作品比学历更关键'
+      };
+    }
+    return out;
+  }
+
+  /**
+   * 把个性化要点分配到各学年。
+   *
+   * 分配规则（都是为了"读起来像有人真的看过你的数据"）：
+   *   · **一年只带一个缺口**，且依次换用不同的缺口——上一版每一年重复同一句，等于没说。
+   *   · 最靠前（= 当前年级）那一年优先补**最大的**缺口，那是最该立刻动手的。
+   *   · 大一第一年谈方向、不谈缺口——那时"最缺"往往只是"还没开课"。
+   *   · 方向句只挂在"选定细分方向 / 做项目"那一年，因为它本来就是讲方向的。
+   *
+   * @param {string} year
+   * @param {string} action   这一年的制度性行动文本（判断是不是"讲方向"的年份）
+   * @param {Object} focus    buildFocus 的结果
+   * @param {boolean} isFreshman
+   * @param {number} gapIndex 该用第几个缺口
+   */
+  function focusFor(year, action, focus, isFreshman, gapIndex, state) {
+    var out = [];
+
+    // 方向句：只说一次，挂在最早那个"讲方向"的年份上（通常在第二行）
+    if (focus.interest && !state.interestShown && /选定|方向/.test(action)) {
+      out.push('方向选择上' + focus.interest.text);
+      state.interestShown = true;
+    }
+
+    // 大一第一年不点缺口：此处"最缺"通常只是"还没开课"
+    var skipGap = isFreshman && year === '大一';
+    if (!skipGap && focus.gaps.length) {
+      var g = focus.gaps[gapIndex];
+      if (g) out.push('重点补「' + g.label + '」（距目标岗位还差 ' + CP.round(g.gap, 0) + ' 分）');
+    }
+    return out;
+  }
+
   /**
    * 生成逐年规划建议。
    *
-   * @param {Object} archive 档案（取当前年级作为起点）
+   * @param {Object} archive  档案（取当前年级作为起点）
+   * @param {Object} score    scoreAll 的结果（可选；缺了就退化为纯制度性骨架）
    * @param {Object} decision decidePaths 的结果
    * @param {Object} match    matchJobs 的结果
-   * @returns {Array} [{ year, action, note }]
+   * @returns {Array} [{ year, action, note, focus:Array<string>, personalized:boolean }]
    */
-  CP.yearPlan = function (archive, decision, match) {
+  CP.yearPlan = function (archive, score, decision, match) {
     var grade = (archive && archive.profile && archive.profile.grade) || '大三';
-    var start = YEAR_PLAN[grade] || YEAR_PLAN['大三'];
-    var rows = start.map(function (x) { return { year: x.year, action: x.action, note: x.note }; });
-    if (!rows.length) return rows;
+    var skeleton = YEAR_PLAN[grade] || YEAR_PLAN['大三'];
+    if (!skeleton.length) return [];
 
-    // 三条主线对同一学年的侧重不同，用后缀点出来——六条路径写六份表会失控
-    var pathId = (decision && decision.primary) ? decision.primary.pathId : '';
-    var isExam = /p-考公/.test(pathId);
-    var isResearch = /p-baoyan|p-出国|p-考研转行业/.test(pathId);
-    var job = (match && match.ranked && match.ranked[0]) ? match.ranked[0].name : '';
+    var isFreshman = (grade === '大一');
+    var focus = buildFocus(score, decision, match);
+    var top = (match && match.ranked && match.ranked[0]) || null;
+    var state = { interestShown: false, gapUsed: 0 };
 
-    rows.forEach(function (r) {
-      if (isExam) {
-        r.action += '（同时按考公节奏推进：行测与申论要提前一年启动）';
-      } else if (isResearch && (r.year === '大二' || r.year === '研一' || r.year === '研二')) {
-        r.action += '（偏研究路线：优先保证科研产出，而不是刷实习数量）';
-      } else if (!isResearch && r.year === '大三') {
-        r.action += '（偏就业路线：实习优先级高于课程分数，但不要挂科）';
+    var rows = skeleton.map(function (x) {
+      var r = { year: x.year, action: x.action, note: x.note, focus: [], personalized: false };
+      var extra = focusFor(x.year, x.action, focus, isFreshman, state.gapUsed, state);
+      if (extra.some(function (t) { return t.indexOf('重点补') === 0; })) state.gapUsed += 1;
+
+      // 培养路线只在当前年级那一条点出来
+      if (r.year === grade && focus.track) extra.push(focus.track.text);
+
+      // 岗位锁定只挂在秋招那一条
+      if (top && /秋招/.test(x.action)) {
+        r.action += '；目标岗位可锁定「' + top.name + '」这类方向';
       }
-      if (job && r.year === '大四') r.action += '；目标岗位可锁定「' + job + '」这类方向';
+
+      r.focus = extra;
+      r.personalized = extra.length > 0;
+      return r;
     });
+
+    // 兜底：有些年级的骨架里没有"选定方向"这类措辞（例如大三只剩两年），
+    // 于是兴趣方向可能整份都不出现。这里把它挂到第一行，保证一定体现出来。
+    if (focus.interest && !state.interestShown && rows.length) {
+      rows[0].focus.unshift('方向选择上' + focus.interest.text);
+      rows[0].personalized = true;
+    }
     return rows;
   };
+
 
   /**
    * 生成行动计划草案：差距任务 + 路径里程碑。
