@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 职业生涯规划学习实践工作台</title>
+<link rel="icon" href="素材/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="样式/工作台.css">
+<style>
+  /* 由本地 ComfyUI 生成的视觉素材（Qwen-Image-2.1）。
+     只作装饰：图里没有任何文字，所有文字都由 HTML 渲染，因此可访问、可打印、可搜索。 */
+  :root {
+    --hero-img: url("素材/hero.png");
+    --hero-img-square: url("素材/雷达底纹.svg");
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶栏只在窄屏出现（≤900px）。宽屏下侧栏常驻可见，整条顶栏 display:none -->
+<header class="topbar" id="topbar">
+  <button class="icon-btn" id="btnDrawer" aria-label="打开导航菜单" aria-controls="sidebar" aria-expanded="false">
+    <span class="icon-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+  </button>
+  <span class="topbar-title" id="topbarTitle">总览</span>
+  <span class="topbar-progress" aria-hidden="true"><i id="topProgress" style="width:0%"></i></span>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text">
+        <b>职业生涯规划工作台</b>
+        <span>人工智能专业 · 课程实践</span>
+      </div>
+      <button class="icon-btn drawer-close" id="btnDrawerClose" aria-label="关闭导航菜单">
+        <span aria-hidden="true">×</span>
+      </button>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="side-foot">
+      <div class="progress-row">
+        <div class="progress"><i id="sideProgress" style="width:0%"></i></div>
+        <b id="sideProgressText">0%</b>
+      </div>
+      <button class="btn btn-sm" id="btnSave">导出档案 JSON</button>
+      <button class="btn btn-sm" id="btnLoad">导入档案 JSON</button>
+      <button class="btn btn-sm" id="btnDemo">载入示例档案</button>
+      <button class="btn btn-sm" id="btnReset">清空并重来</button>
+      <input type="file" id="fileInput" accept=".json,application/json" hidden>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="wrap" id="view"></div>
+  </main>
+</div>
+
+<!-- 抽屉打开时的遮罩；点击关闭 -->
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<!-- 数据层 -->
+<script src="数据/schema.js"></script>
+<script src="数据/题库.js"></script>
+<script src="数据/岗位库.js"></script>
+<script src="数据/路径库.js"></script>
+<!-- 逻辑层（与 Node 测试完全同一份代码） -->
+<script src="逻辑/计分.js"></script>
+<script src="逻辑/匹配.js"></script>
+<script src="逻辑/建议.js"></script>
+<!-- 界面层 -->
+<script src="界面/存储.js"></script>
+<script src="界面/图表.js"></script>
+<script src="界面/页面.js"></script>
+<script src="界面/测评.js"></script>
+<script src="界面/结果.js"></script>
+<script src="导出/报告.js"></script>
+<script src="界面/应用.js"></script>
+</body>
+</html>
