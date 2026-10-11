@@ -121,7 +121,6 @@ a { color: var(--brand); }
 }
 .brand-text { flex: 1 1 auto; min-width: 0; }
 .brand-text b { display: block; font-size: 14px; }
-.brand-text span { font-size: 11px; color: var(--ink-3); }
 
 .nav { display: flex; flex-direction: column; gap: 1px; }
 .nav-item {
