@@ -559,6 +559,21 @@ label.field > .hint { display: block; font-size: 11.5px; color: var(--ink-3); ma
 .scale button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
 .scale-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-top: 4px; }
 
+/* 选中反馈：量表的 8 个按钮视觉几乎一样，点完只变色容易"没点到"的错觉。
+   轻微弹一下给确认感。只对刚点中的那一个播，不整排动——整排动会像页面在抖。 */
+.scale button.pick-pop { animation: pick-pop .2s var(--ease); }
+@keyframes pick-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+/* 清单勾选：整行很淡地闪一下。对勾本身的展开动画已有，这里补"这一行被记下了"的反馈 */
+.check-item.row-flash { animation: row-flash .34s var(--ease); }
+@keyframes row-flash {
+  0% { background: var(--brand-soft); }
+  100% { background: transparent; }
+}
+
 /* 窄屏：题干独占一行，量表整行铺开、各档位等宽
    这样手指点得到、也不会因为按钮太窄而误触。
    档位数由模板给出 scale-4 / scale-5，不依赖 :has() 的浏览器支持。 */

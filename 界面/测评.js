@@ -154,6 +154,20 @@
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
           });
         }
+        // 轻微弹一下，给"点中了"的确认感。
+        // 用 animationend 摘类，而不是常驻——常驻的话同一档再点一次不会重播。
+        // 尊重 reduced-motion（样式表里那条 * { transition: none } 不拦 animation，
+        // 所以这里显式判断）。
+        if (!CP.ui.motionReduced || !CP.ui.motionReduced()) {
+          btn.classList.remove('pick-pop');
+          // 强制一次样式重算，否则连续点同一档时动画不会重新开始
+          void btn.offsetWidth;
+          btn.classList.add('pick-pop');
+          btn.addEventListener('animationend', function onPop() {
+            btn.classList.remove('pick-pop');
+            btn.removeEventListener('animationend', onPop);
+          });
+        }
         CP.store.saveSoon(a, 250);
         onAnswered();
       };
@@ -180,7 +194,20 @@
         a.computed = null;
 
         var row = box.closest('[data-check]');
-        if (row) row.classList.toggle('done', box.checked);
+        if (row) {
+          row.classList.toggle('done', box.checked);
+          // 整行淡闪一下，给"这一条被记下了"的反馈。
+          // 只在勾上时闪，取消勾选不需要庆祝。
+          if (box.checked && (!CP.ui.motionReduced || !CP.ui.motionReduced())) {
+            row.classList.remove('row-flash');
+            void row.offsetWidth;                 // 强制重算，保证连续勾选都能重播
+            row.classList.add('row-flash');
+            row.addEventListener('animationend', function onFlash() {
+              row.classList.remove('row-flash');
+              row.removeEventListener('animationend', onFlash);
+            });
+          }
+        }
 
         // 更新该维度的小计数
         var it = items.filter(function (x) { return x.id === id; })[0];

@@ -37,7 +37,18 @@
 
     bindGlobal: function () {
       window.addEventListener('hashchange', function () {
-        CP.ui.go(location.hash ? location.hash.slice(1) : 'home');
+        var want = location.hash ? location.hash.slice(1) : 'home';
+        // 跳过"我们自己设的 hash"引发的 hashchange。
+        //
+        // 为什么必须跳过：go() 先渲染、再改 hash，于是 hashchange 会**再**跑一次
+        // go()。此时路由已经改过，same 为真，keepScroll 就保持了默认的真值——
+        // 于是这次渲染走"原地重渲染"分支，把刚播的换页动画与图表动画全部覆盖掉。
+        // 表现就是：从首页点进结果页看不到图表动画，而"已经在该页时再进来"反而正常。
+        if (CP.ui._syncedHash === location.hash) {
+          CP.ui._syncedHash = null;
+          return;
+        }
+        CP.ui.go(want);
       });
 
       // 窄屏抽屉。关闭方式有三种，都保留：点 ×、点遮罩、按 Esc。
@@ -269,6 +280,87 @@
       // 插入 DOM 之后再绑定事件
       if (typeof CP.bindPage === 'function') CP.bindPage(route);
       if (CP.ui.afterRender) { var f = CP.ui.afterRender; CP.ui.afterRender = null; f(); }
+
+      // 图表入场动画。同样只在"真正换页"时播——
+      // 决策页每点一个选项都会原地重渲染，那里如果也播，
+      // 雷达图会不停从零长出来，非常烦。
+      if (opt.keepScroll === false) CP.ui.animateCharts(view);
+    },
+
+    /**
+     * 给图表里的图形元素播入场动画。
+     *
+     * 为什么由界面层做而不是写在 界面/图表.js 里：
+     *   图表可能被插进任何文档——尤其是**打印视图**。那里要的是静态终态，
+     *   不能自带动画（否则可能截到动画中途的残缺图形）。
+     *   所以图表只负责打 `data-anim` 锚点，动画由"知道当前是不是打印"的
+     *   这一层来触发。SVG 属性里存的是终态尺寸，因此即使动画一次都没播，
+     *   图形也是完整的。
+     *
+     * 为什么用 WAAPI 而不是 CSS：
+     *   SVG 的几何属性（width / points）不能做 CSS transition；
+     *   CSS 的 transform-origin 在 SVG 里按视口坐标算，逐条不同原点很难写。
+     *   WAAPI 可以把原点直接算进 translate 里。
+     *
+     * @param {Element} container 刚渲染好的容器
+     */
+    animateCharts: function (container) {
+      if (!container || typeof container.querySelectorAll !== 'function') return;
+      // 尊重无障碍设置
+      if (CP.ui.motionReduced && CP.ui.motionReduced()) return;
+
+      var els;
+      try {
+        els = container.querySelectorAll('[data-anim]');
+      } catch (e) {
+        return;
+      }
+      if (!els.length) return;
+      // 能力检测：没有任何元素支持 Element.animate 就直接不播。
+      // 图表动画纯属装饰，缺了不影响可读性——图形本身已按终态绘制。
+      // （假 DOM 与老浏览器都没有这个 API，不能因为它的缺失让渲染抛错。）
+      if (typeof els[0].animate !== 'function') return;
+
+      Array.prototype.forEach.call(els, function (el) {
+        var kind = el.getAttribute('data-anim');
+        var delay = Number(el.getAttribute('data-anim-delay') || 0);
+        var timing = { duration: 420, delay: delay, easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'both' };
+
+        if (kind === 'grow') {
+          // 条形/缺口条：从原点横向长出。
+          // 读取 data-anim-origin（SVG 用户坐标），减去元素自身的 x，
+          // 得到"相对自身"的位移，再把缩放原点也设到那里。
+          var origin = Number(el.getAttribute('data-anim-origin') || 0);
+          var x = Number(el.getAttribute('x') || 0);
+          var w = Number(el.getAttribute('width') || 0);
+          if (!(w > 0)) return;
+          var ox = Math.max(0, Math.min(w, origin - x));   // 原点在条内的位置
+          el.animate([
+            { transform: 'translateX(' + ox + 'px) scaleX(0)' },
+            { transform: 'translateX(0) scaleX(1)' }
+          ], timing);
+        } else if (kind === 'pop') {
+          // 雷达多边形：从中心展开。用 getBBox 拿实心尺寸算中心。
+          var bb;
+          try { bb = el.getBBox(); } catch (e2) { bb = null; }
+          if (!bb || !bb.width) return;
+          el.style.transformOrigin = (bb.x + bb.width / 2) + 'px ' + (bb.y + bb.height / 2) + 'px';
+          el.animate([
+            { transform: 'scale(.55)', opacity: 0.25 },
+            { transform: 'scale(1)', opacity: 1 }
+          ], { duration: 480, delay: delay, easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'both' });
+        } else if (kind === 'fade') {
+          el.animate([{ opacity: 0 }, { opacity: 1 }],
+            { duration: 300, delay: delay, easing: 'ease-out', fill: 'both' });
+        }
+      });
+
+      // 播完把内联的 transform-origin 清掉，避免影响后续状态
+      setTimeout(function () {
+        Array.prototype.forEach.call(els, function (el) {
+          if (el.style && el.style.transformOrigin) el.style.transformOrigin = '';
+        });
+      }, 900);
     },
 
     /**
@@ -283,6 +375,8 @@
       var o = opt || {};
       // 不是同一页就必然回到页首
       if (!same) o.keepScroll = false;
+      // 记住这次是我们自己设的 hash：hashchange 处理器会据此跳过重复渲染。
+      CP.ui._syncedHash = '#' + route;
       CP.ui.render(o);
       if (location.hash.slice(1) !== route) location.hash = route;
     },

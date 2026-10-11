@@ -1900,6 +1900,79 @@ test('能力清单页的计数不带分母（回归：曾经显示 21/48）', fu
   ok(v2.indexOf('/' + total) >= 0, '兴趣测评应继续显示 /' + total + '（它确实是"要答完"的）');
 });
 
+test('答题反馈有微动效（量表弹一下、勾选闪一下）', function () {
+  // 为什么值得测：这两处动效的 class 是临时加的、动画结束就摘掉，
+  // 写错了不会报错、只是"点了没反应"——不容易被人发现。
+  var sb2 = CP.ui.archive = CP.demoArchive();
+  CP.ui.archive.profile.grade = '大三';
+  CP.store.save(CP.ui.archive);
+  CP.ui.go('riasec');
+
+  // 量表：点某一档后，那个按钮应带上 pick-pop
+  var scaleBtn = q('[data-item]')[2];
+  ok(scaleBtn, '应找到量表按钮');
+  scaleBtn.click();
+  has(scaleBtn.getAttribute('class'), 'pick-pop', '点中的那一档应带上 pick-pop');
+
+  // 动画结束应摘掉（否则同一档再点不会重播）
+  (scaleBtn.listeners.animationend || []).slice().forEach(function (f) { f({ type: 'animationend' }); });
+  ok(scaleBtn.getAttribute('class').indexOf('pick-pop') < 0, '动画结束后应摘掉 pick-pop');
+
+  // 连续点同一档也能重播
+  scaleBtn.click();
+  has(scaleBtn.getAttribute('class'), 'pick-pop', '再点一次仍应带动画');
+  (scaleBtn.listeners.animationend || []).slice().forEach(function (f) { f({ type: 'animationend' }); });
+
+  // 清单：勾上时整行闪一下
+  CP.ui.go('ability');
+  var box = q('[data-checkbox]')[0];
+  ok(box, '应找到勾选框');
+  var row = box.closest('[data-check]');
+  ok(row, '勾选框应能找回所在行');
+  box.checked = true;
+  box.onchange();
+  has(row.getAttribute('class'), 'row-flash', '勾上后整行应闪一下');
+  (row.listeners.animationend || []).slice().forEach(function (f) { f({ type: 'animationend' }); });
+  ok(row.getAttribute('class').indexOf('row-flash') < 0, '闪完应摘掉 row-flash');
+
+  // 取消勾选不闪（取消不是"完成了一件事"）
+  box.checked = false;
+  box.onchange();
+  ok(row.getAttribute('class').indexOf('row-flash') < 0, '取消勾选不应闪');
+
+  // 样式表里要有对应的 keyframes
+  var css = require('fs').readFileSync(
+    require('path').resolve(ROOT, '样式', '工作台.css'), 'utf8');
+  ok(css.indexOf('@keyframes pick-pop') >= 0, '应有 @keyframes pick-pop');
+  ok(css.indexOf('@keyframes row-flash') >= 0, '应有 @keyframes row-flash');
+});
+
+test('图表带入场动画锚点，且属性存的是终态', function () {
+  // 图表本身（界面/图表.js）只打锚点、不播动画——动画由界面层触发，
+  // 这样打印视图拿到的永远是静态终态。
+  var a = CP.demoArchive();
+  var res = CP.buildResult(a);
+  var s = res.score;
+
+  var radar = CP.chartRadar(CP.BANK_RIASEC.dimensions.map(function (d) {
+    return { label: d.label, score: s.riasec.dims[d.id].score };
+  }), { size: 250 });
+  eq((radar.match(/data-anim="pop"/g) || []).length, 1, '雷达图应有 1 个 pop 锚点');
+
+  var bars = CP.chartBars(Object.keys(s.ability.dims).map(function (k) {
+    return { label: s.ability.dims[k].label, value: s.ability.dims[k].score };
+  }), { width: 420, labelW: 96, digits: 0, pending: true });
+  var growN = (bars.match(/data-anim="grow"/g) || []).length;
+  eq(growN, 8, '能力条形图应有 8 个 grow 锚点，实际 ' + growN);
+
+  // 关键：属性里必须是**终态**尺寸。如果为了动画把 width 写成 0，
+  // 那么打印视图（没有动画）就会得到一堆空条。
+  var m = bars.match(/<rect[^>]*data-anim="grow"[^>]*>/);
+  var w = Number((m[0].match(/width="([\d.]+)"/) || [])[1]);
+  ok(w > 0, 'grow 元素的 width 属性必须是终态正数，实际 ' + w);
+  ok(m[0].indexOf('data-anim-origin=') >= 0, 'grow 元素应带原点信息');
+});
+
 test('报告与结果页不含未定义 / NaN / 浮点噪声', function () {
   // 强制重算，确保检查的是当前代码的结果而不是存档里的历史快照
   CP.ui.result(true);

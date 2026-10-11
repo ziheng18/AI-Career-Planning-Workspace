@@ -95,14 +95,17 @@
 
     // 数据多边形：用虚线描边，因为此时还没有答完，形状会继续变化
     svg.push('<polygon points="' + pts.join(' ') + '" fill="' + C.brand + '" fill-opacity="0.16" stroke="' + C.brand + '" stroke-width="2"' +
-      (pendingPts.length ? ' stroke-dasharray="6 4"' : '') + '/>');
+      (pendingPts.length ? ' stroke-dasharray="6 4"' : '') + ' data-anim="pop"/>');
 
-    // 顶点与标签
+    // 顶点与标签。顶点也放进 pop 组？不——顶点是独立的 circle，
+    // 给它们各自的 pop 会产生 6 次缩放，视觉上会"跳"。只让多边形与顶点一起淡入：
+    // 顶点标 pop-delay，由运行器统一处理延迟。
     axes.forEach(function (a, i) {
       var pending = (a.score == null);
       var q = point(i, Math.max(0, Math.min(1, (pending ? 0 : a.score) / 100)));
       svg.push('<circle cx="' + q[0].toFixed(1) + '" cy="' + q[1].toFixed(1) + '" r="3" fill="' +
-        (pending ? C.ink3 : C.brand) + '"' + (pending ? ' fill-opacity="0.5"' : '') + '/>');
+        (pending ? C.ink3 : C.brand) + '"' + (pending ? ' fill-opacity="0.5"' : '') +
+        (pending ? '' : ' data-anim="fade" data-anim-delay="' + (i * 30) + '"') + '/>');
       var lp = point(i, 1.17);
       var anchor = Math.abs(lp[0] - cx) < 6 ? 'middle' : (lp[0] > cx ? 'start' : 'end');
       svg.push('<text x="' + lp[0].toFixed(1) + '" y="' + (lp[1] + 4).toFixed(1) + '" text-anchor="' + anchor +
@@ -140,8 +143,12 @@
       var w = pending ? barMax : Math.max(1, Math.round((Math.min(v, max) / max) * barMax));
       svg.push('<text x="0" y="' + (y + 13) + '" font-size="11.5" fill="' + (pending ? C.ink3 : C.ink2) + '">' + esc(r.label) + '</text>');
       svg.push('<rect x="' + labelW + '" y="' + y + '" width="' + barMax + '" height="13" rx="3" fill="' + C.line + '" fill-opacity="0.55"/>');
+      // 数据条带 data-anim="grow"：入场时从 0 宽度长出，逐条错开。
+      // 注意 SVG 属性（width）不能用 CSS transition，动画由 界面/应用.js
+      // 用 WAAPI 改写 transform 属性实现——见那里的说明。
       svg.push('<rect x="' + labelW + '" y="' + y + '" width="' + w + '" height="13" rx="3" fill="' +
-        (pending ? C.ink3 : (r.color || opt.color || C.brand)) + '" fill-opacity="' + (pending ? 0.16 : 1) + '"/>');
+        (pending ? C.ink3 : (r.color || opt.color || C.brand)) + '" fill-opacity="' + (pending ? 0.16 : 1) + '"' +
+        (pending ? '' : ' data-anim="grow" data-anim-origin="' + labelW + '" data-anim-delay="' + (i * 45) + '"') + '/>');
       var txt = pending ? '未答' : fmt(r.value, opt.digits == null ? 1 : opt.digits) + (opt.unit || '');
       svg.push('<text x="' + (width - 2) + '" y="' + (y + 12) + '" text-anchor="end" font-size="11.5" fill="' +
         (pending ? C.ink3 : C.ink2) + '" font-variant-numeric="tabular-nums">' + esc(txt) + '</text>');
@@ -180,13 +187,17 @@
       var gap = Math.max(0, req - got);
 
       svg.push('<text x="0" y="' + (y + 13) + '" font-size="11.5" fill="' + C.ink2 + '">' + esc(r.label) + '</text>');
-      // 左：我的水平（从中间向左延伸）
+      // 左：我的水平（从中间向左延伸）。
+      // 左边这条原本 x = mid - wGot，动画时"从右端（中线处）向左长出"，
+      // 所以 origin 是 mid 而不是条的起点。
       var wGot = Math.max(1, (got / 100) * half);
-      svg.push('<rect x="' + svgNum(mid - wGot) + '" y="' + y + '" width="' + svgNum(wGot) + '" height="14" rx="3" fill="' + C.brand + '"/>');
+      svg.push('<rect x="' + svgNum(mid - wGot) + '" y="' + y + '" width="' + svgNum(wGot) + '" height="14" rx="3" fill="' + C.brand + '"' +
+        ' data-anim="grow" data-anim-origin="' + svgNum(mid) + '" data-anim-delay="' + (i * 45) + '"/>');
       // 右：缺口（从中间向右延伸）
       if (gap > 0) {
         var wGap = Math.max(1, (gap / 100) * half);
-        svg.push('<rect x="' + svgNum(mid) + '" y="' + y + '" width="' + svgNum(wGap) + '" height="14" rx="3" fill="' + C.danger + '" fill-opacity="0.85"/>');
+        svg.push('<rect x="' + svgNum(mid) + '" y="' + y + '" width="' + svgNum(wGap) + '" height="14" rx="3" fill="' + C.danger + '" fill-opacity="0.85"' +
+          ' data-anim="grow" data-anim-origin="' + svgNum(mid) + '" data-anim-delay="' + (i * 45 + 20) + '"/>');
       } else {
         svg.push('<text x="' + (mid + 6) + '" y="' + (y + 12) + '" font-size="10.5" fill="' + C.ok + '">已达标</text>');
       }
