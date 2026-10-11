@@ -161,6 +161,7 @@ Top3 岗位推荐 + 差距学习任务 + 主路径 / Plan B
 │   ├─ 触摸诊断.cjs           # 走 CDP 的真实触摸诊断（移动端仿真）
 │   ├─ 动效诊断.cjs           # 换页动画 × 减少动态效果偏好（CDP 模拟 + opacity 采样）
 │   ├─ 图表动效诊断.cjs       # 图表入场动画（采样 scaleX，带对照组）
+│   ├─ 悬停诊断.cjs           # 悬停在已选中控件上时的对比度（浅色+深色）
 │   ├─ 导出PDF.cjs            # 真正导出 PDF 并校验分页、配色、空白页
 │   ├─ PDF取文.cjs            # 从 PDF 里解出文字（核查某章节是否真的进了 PDF）
 │   └─ 导出解耦.test.js       # 架构约束：导出层不得依赖界面层
@@ -226,13 +227,14 @@ pwsh -File 素材/生成图.ps1 -Name my-img -Prompt "..." -Width 1024 -Height 1
 ## 运行测试
 
 ```bash
-npm test                 # 逻辑层 107 项 + 界面层 90 项（零依赖，纯 Node）
+npm test                 # 逻辑层 108 项 + 界面层 90 项（零依赖，纯 Node）
 npm run test:logic       # 只跑逻辑层
 npm run test:ui          # 只跑界面层
 npm run test:browser     # 真实浏览器诊断（无头 Edge/Chrome，桌面视口）
 npm run test:mobile      # 真实浏览器诊断（窄屏视口 420×860）
 npm run test:touch       # 真实触摸诊断（CDP Input.dispatchTouchEvent，移动端仿真）
 npm run test:chart       # 图表入场动画（真实浏览器采样 scaleX，确认真的在播）
+npm run test:hover       # 悬停在"已选中"控件上时文字是否仍可读（浅色+深色各跑一遍）
 npm run test:pdf         # 真正导出 PDF 并校验分页、配色、空白页、章节齐全
 npm run test:motion      # 换页动画 × "减少动态效果"偏好（真实浏览器 + CDP 模拟）
 npm run test:http        # 起本地静态服务，验证 HTTP 部署下的行为
@@ -242,10 +244,11 @@ npm run demo             # 重新生成示例档案
 
 五个层次：
 
-- **逻辑层测试**（107 项）：契约与数据完整性、年级口径切换、归一化与 base、反向计分、一致性与计时检验、霍兰德/锚判定、兴趣封顶、软最小值、锚对齐、学历门槛、路径权重、幂等性、极端档案、大一模式专项，以及**架构约束**（导出层不得依赖界面层）。
+- **逻辑层测试**（108 项）：契约与数据完整性、年级口径切换、归一化与 base、反向计分、一致性与计时检验、霍兰德/锚判定、兴趣封顶、软最小值、锚对齐、学历门槛、路径权重、幂等性、极端档案、大一模式专项，以及**架构约束**（导出层不得依赖界面层）。
 - **界面层冒烟测试**（90 项）：用一个最小 DOM 仿真把 `工作台.html` 里的 14 个脚本按真实顺序加载并真实触发点击。外壳 DOM 是**直接解析 `工作台.html` 的 `<body>`** 得到的，不是手工复刻——否则改 HTML 会导致假失败。
 - **浏览器诊断**（`test:browser` / `test:mobile`）：用无头 Edge 打开工作台的真实副本，做 `elementFromPoint` 命中测试、计算样式检查，以及**在坐标上派发真实事件**的指针级点击。
 - **触摸诊断**（`test:touch`）：走 Chrome DevTools 协议（`Emulation.setTouchEmulationEnabled` + `Input.dispatchTouchEvent`），做真机式的触摸点击。**这一层才发现了 × 点不动的真正原因**——合成鼠标点击会"全绿"，因为 `.click()` 与 `elementFromPoint` 都不反映触摸时元素的实时位置。
+- **悬停诊断**（`test:hover`）：用 CDP 派发真实 `mouseMoved` 触发 `:hover`，再按祖先链合成实际底色算对比度。**假 DOM 没有伪类状态、浏览器诊断也不测悬停**，所以这类错误只能这样抓。浅色与深色各跑一遍（修复本身就分了两套主题）。
 - **图表动效诊断**（`test:chart`）：SVG 的入场动画最容易"写了却不生效"——几何属性不能做 CSS transition，`transform-origin` 在 SVG 里按视口坐标算。所以这里不看代码，直接**采样 `scaleX`** 确认条形真的从 0 长出来，并带一个**对照组**（真换页必须重播），防止"不播也算通过"的弱断言。
 - **PDF 校验**（`test:pdf`）：用 `Page.printToPDF` 真正导出一份 PDF，再解压页面内容流，检查分页、空白页，以及**品牌色是否真的写进了 PDF**。这一层抓到了"打印视图缺设计令牌导致图表全黑"——那个 bug 在网页面里完全看不出来。
 - **动效诊断**（`test:motion`）：用 CDP 的 `Emulation.setEmulatedMedia` 切换 `prefers-reduced-motion`，并给 `#view` 挂 rAF 采样器读 opacity，**判断动画到底有没有播**（不能只看 `animationName`，它会说谎）。覆盖：正常偏好要播、减少动态效果不播、关闭偏好后每个页面都要能恢复、动画播放中换页要能重启、原地重渲染始终不播。这些全是运行时行为，纯 CSS 断言测不出来。
@@ -297,6 +300,8 @@ PDF 里的中文是字形编号 + ToUnicode 映射，直接 grep 字节流搜不
 | hashchange 会重复渲染一次 | 从首页进结果页时图表动画被吃掉 | `go()` 先渲染再改 hash，于是 hashchange **又**跑一次 `go()`；此时路由已改，`same` 为真，`keepScroll` 保持默认真值——第二次渲染走了"原地重渲染"分支，把刚播的动画覆盖掉。用 `_syncedHash` 跳过自己触发的 hashchange |
 | SVG 动画的落点 | 条形图不从左边长出 / 图形被裁切 | SVG 几何属性（`width`/`points`）不能做 CSS transition；`transform-origin` 在 SVG 里按**视口**坐标算。改用 WAAPI 把原点算进 `translateX`。另外**属性里必须存终态尺寸**，动画只做视觉缩放——这样打印视图（无动画）拿到的仍是完整图形 |
 | 弱断言会骗过自己（第三次） | "对比度 21.00"其实是白字白底 | 背景透明时把 `rgba(0,0,0,0)` 当黑色算，白字白底反而得高分。凡是"检查颜色/对比度"的断言，都要先**沿祖先链合成出实际可见底色**。写完断言要反过来问：把 bug 放回去，它会失败吗？|
+| hover 会盖住选中态 | 鼠标移到已选中的档位上，数字消失 | `.scale button:hover { color: var(--brand) }` 把**已选中**按钮的白字也改成品牌色——青绿字落在青绿底上，对比度 1.00。凡是有 `.on` / `.done` / `.active` 的控件，hover 规则都要加 `:not(.on)`，或给选中态单独写 hover。已加测试 |
+| 两套清单共用 item id | 按 id 查属性会拿到另一套 | 大一与大二以上的能力清单共用 `math1`…`math6` 这批 id，只有题目文本与权重不同，而 `bank.items` 是合并数组。任何"按 id 查属性"都要带年级（`CP.activeItems(bank, profile)`），否则命中排在前面那套。`weightOf(id, profile)` 因此要求传 profile |
 | 组合选择器会压过单一类 | 活动标签"白字 + 透明底"整条隐形 | `.result-tabs .btn{background:transparent}`（2 个类）压过了 `.btn-primary{background:var(--brand)}`（1 个类），而 `color:#fff` 没被覆盖。去掉背景时用 `:not(.btn-primary)`——`:not()` 会计入参数的特异性，仍能与它平权。**这类 bug 用 getComputedStyle 才测得出来**，已加进浏览器诊断 |
 | 打印视图必须自带设计令牌 | 导出 PDF 里图表全黑、色带消失 | 图表用 `fill="var(--brand)"` 取色，而打印视图是**独立文档**，不继承 `样式/工作台.css` 的 `:root`。`renderPrintView` 必须重新声明色板，并开 `print-color-adjust: exact` |
 | 假 DOM 要按真实 HTML 建 | 改 HTML 后测试大面积假失败 | `buildDom()` 直接解析 `工作台.html` 的 `<body>` |
