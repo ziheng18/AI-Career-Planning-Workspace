@@ -689,14 +689,50 @@ label.field > .hint { display: block; font-size: 11.5px; color: var(--ink-3); ma
   margin-bottom: 16px;
 }
 .result-tabs .btn { border: 0; border-radius: 999px; }
-/* 只给"非活动"标签去掉背景。
-   不能写成 `.result-tabs .btn { background: transparent }`——那是两个类（0,2,0），
-   会压过 `.btn-primary`（0,1,0），把活动标签的背景打成透明；
-   而 `.btn-primary` 的 `color:#fff` 没被覆盖，于是"白字 + 透明底"完全隐形。
-   用 :not(.btn-primary) 后选择器仍含 .btn-primary，能与它平权、靠顺序取胜。 */
-.result-tabs .btn:not(.btn-primary) { background: transparent; }
-.result-tabs .btn:not(.btn-primary):hover { background: var(--surface-2); }
-.result-tabs .btn-primary { box-shadow: 0 2px 8px rgba(15, 118, 110, .28); }
+/* 活动标签的完整样式必须在这里写全，不能只留一句 box-shadow。
+ *
+ * 原来的 bug：`.btn-primary`（1 个类）给了 `background: var(--brand)`（青绿）
+ * 和 `color: #fff`（白字）；但 `.result-tabs .btn`（2 个类）把它压成了
+ * `background: transparent`，**只压掉了背景、没碰文字色**。
+ * 于是白字落在透明底上——而外层 .result-tabs 是白底，看起来就是"白字白底"。
+ *
+ * 所以这里显式说清三件事：白底、青绿字、青绿阴影（阴影是原作者想要的"浮起"效果）。 */
+.result-tabs .btn-primary {
+  background: var(--surface);
+  color: var(--brand-ink);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, .28);
+}
+.result-tabs .btn-primary:hover {
+  background: var(--surface);
+  color: var(--brand);
+  box-shadow: 0 3px 12px rgba(15, 118, 110, .36);
+}
+/* 非活动标签：透明底 + 次级文字色。
+   用 :not() 而不是裸 `.result-tabs .btn`：`:not()` 会计入参数的特异性，
+   选择器仍含 .btn-primary，两者平权、靠源码顺序取胜，不会再把活动标签压掉。 */
+.result-tabs .btn:not(.btn-primary) { background: transparent; color: var(--ink-2); }
+.result-tabs .btn:not(.btn-primary):hover { background: var(--surface-2); color: var(--ink); }
+
+/* 深色模式下的活动标签：改成青绿实底 + 深色字。
+   为什么两套配色不同：
+     · 浅色下容器是白、活动标签也是白，靠阴影"浮起"——干净，符合原设计。
+     · 深色下容器同样是 --surface(#161c24)，活动标签若也用 --surface 就与容器同色，
+       只剩阴影区分，看起来"没选中"。改成品牌色实底最清楚。
+     · 深色模式的 --brand 是亮青绿(#2dd4bf)，必须配**深色字**才够对比——
+       配白字对比度只有 1.9，几乎看不见。
+   注意 --brand-ink 在深色下是 #99f6e4（浅青绿），那是给"深底浅字"用的，
+   这里的底是亮青绿，所以文字色要写死深色，不能用 --brand-ink。 */
+@media (prefers-color-scheme: dark) {
+  .result-tabs .btn-primary {
+    background: var(--brand);
+    color: #0d1218;
+  }
+  .result-tabs .btn-primary:hover {
+    background: var(--brand-2);
+    color: #0d1218;
+  }
+}
 
 .jobcard { transition: box-shadow .18s var(--ease); }
 .jobcard.hi { box-shadow: var(--shadow-md); }
