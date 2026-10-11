@@ -496,6 +496,12 @@ function makeSandbox() {
     console: console,
     setTimeout: setTimeout,
     clearTimeout: clearTimeout,
+    /* requestAnimationFrame 必须提供：产品代码用它做换页动画。
+       假 DOM 没有真正的帧循环，直接同步执行回调即可——调用方只是
+       "下一帧再做某事"，同步执行不影响断言语义。
+       这也是**能力检测**的一环：缺了它整个启动流程会抛错。 */
+    requestAnimationFrame: function (fn) { fn(); return 0; },
+    cancelAnimationFrame: function () { },
     Date: Date,
     Math: Math,
     JSON: JSON,
@@ -523,6 +529,8 @@ function makeSandbox() {
   win.alert = sandbox.alert;
   win.setTimeout = setTimeout;
   win.clearTimeout = clearTimeout;
+  win.requestAnimationFrame = sandbox.requestAnimationFrame;
+  win.cancelAnimationFrame = sandbox.cancelAnimationFrame;
   win.FileReader = sandbox.FileReader;
   win.Blob = sandbox.Blob;
   win.URL = sandbox.URL;
@@ -1750,6 +1758,79 @@ test('完成进度条与右侧数字同源，不出现"条满数字未满"', fun
   ok(abilityRow.textContent.indexOf('/48') < 0,
     '不应出现 /48——分母会让人以为"要做完 48 项"');
   has(abilityRow.textContent, '✓', '达标后应显示勾选标记');
+});
+
+test('换页动画：换页播、原地重渲染不播，且不残留内联样式', function () {
+  // 为什么值得测：换页动画是用**内联** animation 实现的（因为 #view 就是 .wrap，
+  // 摘类再加类不会让它重新开始动画）。内联值有两个风险：
+  //   ① 播完不清掉，会一直压着样式表；
+  //   ② 在"减少动态效果"下不该播——内联优先级高于媒体查询，必须由 JS 拦。
+  var view = byId('view');
+  function fireEnd() {
+    (view.listeners.animationend || []).slice().forEach(function (f) { f({ type: 'animationend' }); });
+  }
+
+  CP.ui.archive = CP.demoArchive();
+  CP.ui.go('home');
+
+  // ① 真正换页 → 应有内联动画
+  CP.ui.go('result');
+  ok(view.style.animation && view.style.animation.indexOf('fade-up') >= 0,
+    '换页后 #view 应带上 fade-up 内联动画，实际 ' + JSON.stringify(view.style.animation));
+
+  // ② 动画播完 → 应清掉内联值，不常驻压着样式表
+  fireEnd();
+  eq(view.style.animation, '', '动画结束后应清掉内联 animation');
+
+  // ③ 原地重渲染 → 不应触发。
+  //    决策页改岗位偏好会调 rerender()，而它调 go('decision')——此时已在决策页，
+  //    keepScroll 保持真值，正是"原地重渲染"路径。
+  CP.ui.go('decision');
+  fireEnd();
+  eq(view.style.animation, '', '准备阶段应先清干净');
+
+  var chip = q('[data-pref]')[0];
+  ok(chip, '决策页应能找到岗位偏好按钮');
+  chip.click();
+  eq(CP.ui.route, 'decision', '点偏好按钮不应离开决策页');
+  eq(view.style.animation, '', '原地重渲染不应触发换页动画（否则点一下整页闪一次）');
+});
+
+test('reduced-motion 由 JS 兜底（内联样式优先级高于媒体查询）', function () {
+  // 样式表里 `@media (prefers-reduced-motion: reduce){ .wrap{animation:none} }`
+  // 拦不住内联 animation，所以产品代码必须在 JS 里判断。
+  // 这里断言这个判断存在且可被调用——删掉它会让无障碍选项失效，而纯 CSS 测不出来。
+  eq(typeof CP.ui.motionReduced, 'function', 'CP.ui.motionReduced 应存在');
+  eq(typeof CP.ui.motionReduced(), 'boolean', 'motionReduced 应返回布尔值');
+
+  var src = require('fs').readFileSync(
+    require('path').resolve(ROOT, '界面', '应用.js'), 'utf8');
+  ok(src.indexOf('CP.ui.motionReduced()') >= 0, '换页动画应经过 motionReduced 判断');
+});
+
+test('能力清单页的计数不带分母（回归：曾经显示 21/48）', function () {
+  // 这是同一个错误的**第二处**：首页进度块与侧边栏改过之后，
+  // 能力清单页顶部的"已勾选"卡片仍然写着 `21/48`，分母在暗示"要做完 48 项"。
+  CP.ui.archive = CP.demoArchive();
+  CP.ui.archive.profile.grade = '大三';
+  CP.fillAbility(CP.ui.archive, 3);
+  CP.store.save(CP.ui.archive);
+
+  CP.ui.go('ability');
+  var v = byId('view').innerHTML;
+  var checked = Object.keys(CP.ui.archive.answers.ability).length;
+  ok(checked > 0, '示例应已勾选若干项');
+
+  // 指标卡里应写"已勾 N 项"，不出现 /48
+  ok(v.indexOf('/' + CP.activeItems(CP.BANKS.ability, CP.ui.archive.profile).length) < 0,
+    '能力清单页不应出现 /48 这样的分母');
+  ok(v.indexOf('已勾选') >= 0, '应保留"已勾选"这个标签');
+
+  // Likert 题（兴趣测评）应继续显示分母——那里的分母是真实要求
+  CP.ui.go('riasec');
+  var v2 = byId('view').innerHTML;
+  var total = CP.activeItems(CP.BANKS.riasec, CP.ui.archive.profile).length;
+  ok(v2.indexOf('/' + total) >= 0, '兴趣测评应继续显示 /' + total + '（它确实是"要答完"的）');
 });
 
 test('报告与结果页不含未定义 / NaN / 浮点噪声', function () {

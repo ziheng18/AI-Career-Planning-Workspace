@@ -93,8 +93,13 @@
       + '<div class="sub">' + esc(bank.subtitle) + '</div></div>'
       + '<div class="grid grid-4" style="margin-bottom:14px">'
       + '<div class="metric"><div class="k">' + (isChecklist ? '已勾选' : '已作答') + '</div>'
-      + '<div class="v">' + n + '<small>/' + total + '</small></div>'
-      + '<div class="progress" style="margin-top:6px"><i style="width:' + (total ? (n / total * 100).toFixed(0) : 0) + '%"></i></div></div>'
+      // 勾选式显示"已勾 N 项"，不显示分母。
+      // 分母会暗示"要做完 48 项"，而清单问的是"你现在能做到哪些"——
+      // 能勾多少勾多少才是诚实的答案。（Likert 题的分母是真要求，继续显示）
+      + '<div class="v">' + n
+      + (isChecklist ? '<small> 项</small>' : '<small>/' + total + '</small>') + '</div>'
+      + '<div class="progress" style="margin-top:6px"><i style="width:'
+      + (total ? (n / total * 100).toFixed(0) : 0) + '%"></i></div></div>'
       + '<div class="metric" style="grid-column:span 3"><div class="k">实时反馈（随作答更新）</div><div id="fb" style="margin-top:4px">'
       + (opt.feedback ? opt.feedback(isChecklist
         ? CP.scoreChecklist(bank, ans, a.profile)

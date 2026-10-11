@@ -203,6 +203,38 @@
       });
       var view = document.getElementById('view');
       view.innerHTML = CP.pages[route] ? CP.pages[route]() : '<div class="empty">页面不存在</div>';
+
+      // 换页时重播入场动画。
+      //
+      // 为什么需要手动触发：`#view` 元素上就带着 .wrap 类，只在首次加载时建一次，
+      // 之后都是换 innerHTML，CSS 动画不会自己重播（实测 getAnimations() 恒为 0）。
+      // 而"原地重渲染"（决策页每次点按钮，keepScroll 为真）必须**不播**，
+      // 否则点一下按钮整页就淡入一次。
+      //
+      // keepScroll === false 恰好就是"真正换页"的判据，直接复用，不另造状态。
+      //
+      // 为什么用内联动画而不是加类：
+      //   `#view` 本身就带 .wrap，页面加载时已经播过一次 fade-up。
+      //   之后无论"摘类再加类"还是"跨两帧再加类"，这个元素都不会重新开始动画
+      //   （实测 getAnimations() 恒为 0、opacity 恒为 1；而同样规则的裸 div 能播）。
+      //   内联 animation 的赋值会强制样式系统重新解析，实测可靠。
+      //
+      // ★ 必须在 JS 里判断 reduced-motion：
+      //   内联样式优先级高于样式表，`@media (prefers-reduced-motion: reduce)`
+      //   里的 `animation:none` 拦不住内联值。漏了这一步，开了"减少动态效果"的
+      //   用户反而会被强行播放动画。
+      if (opt.keepScroll === false && !CP.ui.motionReduced()) {
+        view.style.animation = 'none';
+        requestAnimationFrame(function () {
+          view.style.animation = 'fade-up .22s var(--ease)';
+          view.addEventListener('animationend', function onEnd() {
+            // 播完清掉内联值，避免它一直压着样式表
+            view.style.animation = '';
+            view.removeEventListener('animationend', onEnd);
+          });
+        });
+      }
+
       window.scrollTo(0, opt.keepScroll === false ? 0 : prevScroll);
       CP.ui.refreshProgress();
       // 顶栏显示当前页名（窄屏靠它知道自己在哪，因为侧栏是抽屉）
@@ -307,6 +339,21 @@
         else if (r === 'action') done = (CP.ui.archive.actions || []).length > 0;
         b.classList.toggle('done', done);
       });
+    },
+
+    /**
+     * 用户是否要求"减少动态效果"。
+     *
+     * 必须在 JS 里判断而不只靠 CSS 媒体查询：换页动画是用**内联** animation 做的，
+     * 内联优先级高于样式表，`@media (prefers-reduced-motion: reduce){animation:none}`
+     * 拦不住它。漏了这一步，开了该选项的用户反而被强行播动画。
+     */
+    motionReduced: function () {
+      try {
+        return (typeof matchMedia === 'function') && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch (e) {
+        return false;   // 无 matchMedia（含测试垫片）时按"不减少"处理
+      }
     },
 
     toast: function (msg, ms) {

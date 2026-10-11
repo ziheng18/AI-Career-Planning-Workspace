@@ -12,6 +12,9 @@
   --ink-3: #8894a2;
   --line: #e3e8ec;
   --line-2: #eff2f5;
+  /* 中间调边框：复选框、kbd 这类需要"比 --line 明显、比 --ink-3 轻"的描边。
+     这个变量曾被使用但从未定义，导致 .check-box 的边框拿不到颜色。 */
+  --line-3: #c9d3da;
   --brand: #0f766e;
   --brand-2: #14b8a6;
   --brand-ink: #0b5b55;
@@ -45,6 +48,7 @@
     --ink-3: #6d7887;
     --line: #29313d;
     --line-2: #212932;
+    --line-3: #3d4753;
     --brand: #2dd4bf;
     --brand-2: #5eead4;
     --brand-ink: #99f6e4;
@@ -150,13 +154,51 @@ a { color: var(--brand); }
 
 .main { flex: 1 1 auto; min-width: 0; padding: 28px 32px 72px; }
 .wrap { max-width: 1100px; margin: 0 auto; animation: fade-up .22s var(--ease); }
+
+/* 换页时由 界面/应用.js 用**内联** animation 重播这个动画。
+   为什么不用类：`#view` 就是 .wrap，首屏已播过一次 fade-up，
+   之后"摘类再加类"不会让这个元素重新开始动画（实测 getAnimations() 恒为 0，
+   而同样规则的裸 div 能播）。内联赋值会强制样式系统重新解析，实测可靠。 */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
+
+/* ---------- 基础质感 ---------- */
+
+/* 选中文字用品牌色系，默认的蓝色与整套青绿不搭 */
+::selection { background: var(--brand-soft); color: var(--brand-ink); }
+
+/* 滚动条跟随主题。深色模式下系统仍是浅色滚动条，非常突兀 */
+* { scrollbar-width: thin; scrollbar-color: var(--line-3) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-3); border-radius: 999px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink-3); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* 统一的键盘焦点环。
+   原来只有 .icon-btn / .check-item / 输入框有，按钮、胶囊、导航项、步骤行
+   全都没有——键盘用户看不出焦点在哪。用 :focus-visible，鼠标点击不触发。 */
+:where(a, button, .btn, .chip, .nav-item, .step, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--radius-sm);
+}
+/* 卡片内的紧凑控件（看板操作按钮等）焦点环收一点，避免盖住相邻元素 */
+:where(.kan-item .ops button, .sortrow .mv button):focus-visible { outline-offset: 1px; }
+
+/* 按下反馈。触摸设备没有 hover，缺了这个会觉得"点了没反应"。
+   只做 1px 位移，不做缩放——缩放会让密集控件看起来在抖。 */
+.btn:active, button:active, .chip:active, .step:active, .nav-item:active { transform: translateY(1px); }
+.btn, .chip, .step, .nav-item { transition: background .15s var(--ease), color .15s var(--ease),
+  border-color .15s var(--ease), transform .08s var(--ease); }
+
 @media (prefers-reduced-motion: reduce) {
   .wrap { animation: none; }
   * { transition: none !important; }
+  .btn:active, button:active, .chip:active, .step:active, .nav-item:active { transform: none; }
 }
 
 /* ---------- 窄屏：侧栏改抽屉 ----------
@@ -451,7 +493,11 @@ textarea { min-height: 76px; resize: vertical; }
   .yearplan li { gap: 8px; }
   .yp-year { flex-basis: 40px; font-size: 12px; }
 }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+/* 输入类控件的焦点环。用 :focus-visible 而不是 :focus——
+   鼠标点进输入框也会留一圈 brand 色描边，看着像"已选中"，容易误解。 */
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--brand); outline-offset: -1px;
+}
 label.field { display: block; margin-bottom: 14px; }
 label.field > .lbl { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 5px; }
 label.field > .hint { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
