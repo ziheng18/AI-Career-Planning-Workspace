@@ -34,6 +34,13 @@ function group(t) { console.log('\n' + t); }
 function ok(c, m) { if (!c) throw new Error(m || '条件为假'); }
 function eq(a, b, m) { if (a !== b) throw new Error((m || '不等') + '：期望 ' + JSON.stringify(b) + '，实际 ' + JSON.stringify(a)); }
 function has(hay, needle, m) { if (String(hay).indexOf(needle) < 0) throw new Error((m || '未找到') + '：' + needle); }
+/** 两个字符串首个不同的字节位置。用于"文件必须一致"这类断言——
+    直接把整份内容塞进报错信息会刷屏几千字，看不出问题在哪。 */
+function firstDiff(a, b) {
+  var n = Math.min(a.length, b.length);
+  for (var i = 0; i < n; i++) if (a[i] !== b[i]) return i;
+  return n;
+}
 function nearNum(a, b, tol, m) {
   if (Math.abs(a - b) > tol) throw new Error((m || '数值不符') + '：期望 ' + b + '±' + tol + '，实际 ' + a);
 }
@@ -554,7 +561,13 @@ function scriptList() {
   var re = /<script\s+src="([^"]+)"><\/script>/g;
   var out = [];
   var m;
-  while ((m = re.exec(html)) !== null) out.push(m[1].replace(/\//g, path.sep));
+  while ((m = re.exec(html)) !== null) {
+    // 去掉缓存版本号查询串（?v=...）——它是给浏览器做缓存失效用的，
+    // 与文件系统上的真实路径无关。曾经的坑：加了版本号之后这里直接抛
+    // "引用了不存在的脚本：数据\schema.js?v=..."，把整个测试套件打断。
+    var rel = m[1].split('?')[0].split('#')[0];
+    out.push(rel.replace(/\//g, path.sep));
+  }
   return out;
 }
 
@@ -850,6 +863,47 @@ test('排序行带 FLIP 定位标记，且移动时会挂动画钩子', function
   ok(sawHookAsFunction, '移动时应挂上 afterRender 钩子（FLIP 的播放入口）');
   eq(hookFireCount, 1, '移动应只触发一次重渲染');
   eq(CP.ui.archive.decision.criteriaOrder[0], second, '顺序仍应正确更新');
+});
+
+test('每个脚本都带缓存版本号，且两个入口文件完全一致', function () {
+  // 为什么必须测：样式表一直有 ?v=，但很长一段时间 14 个 JS 都没有。
+  // 后果是——改 CSS 用户能立刻看到，改 JS 却一直看到浏览器缓存的旧版，
+  // 表现成"我明明改了，你却说没效果"。这种问题排查成本极高，值得一条断言守住。
+  var A = fs.readFileSync(path.join(ROOT, '工作台.html'), 'utf8');
+  var B = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  // 断言失败时不要把整份 HTML 打出来（8000 字刷屏，看不出问题在哪）。
+  // 只报差异位置与版本号，够定位了。
+  if (A !== B) {
+    ok(false, '两个入口文件必须完全一致；当前 工作台.html ' + A.length + ' 字节，index.html '
+      + B.length + ' 字节；首个差异在第 ' + firstDiff(A, B) + ' 字节附近；'
+      + 'CSS 版本 ' + ((/工作台\.css\?v=([\w]+)/.exec(A) || [])[1] || '无')
+      + ' / ' + ((/工作台\.css\?v=([\w]+)/.exec(B) || [])[1] || '无'));
+  } else {
+    ok(true, '两个入口文件一致（' + A.length + ' 字节）');
+  }
+
+  var noVer = [];
+  var re = /<script\s+src="([^"]+)"><\/script>/g;
+  var m, count = 0;
+  while ((m = re.exec(A)) !== null) {
+    count += 1;
+    if (m[1].indexOf('?v=') < 0) noVer.push(m[1]);
+  }
+  ok(count >= 10, '应解析到全部脚本，实际 ' + count + ' 个');
+  eq(noVer.length, 0, '这些脚本缺缓存版本号：' + noVer.join('、'));
+
+  // 样式表同理
+  ok(/工作台\.css\?v=/.test(A), '样式表应带缓存版本号');
+
+  // 版本号要统一：CSS 与 JS 用同一个，推进时只改一个地方
+  var cssVer = (/工作台\.css\?v=([\w]+)/.exec(A) || [])[1];
+  var jsVers = [];
+  var re2 = /<script\s+src="[^"]+\?v=([\w]+)"/g;
+  var m2;
+  while ((m2 = re2.exec(A)) !== null) jsVers.push(m2[1]);
+  jsVers.forEach(function (v) {
+    eq(v, cssVer, 'JS 版本号应与 CSS 一致（当前 CSS=' + cssVer + '，JS=' + v + '）');
+  });
 });
 
 test('路径打分下拉框会写入覆盖值并改变加权得分', function () {
