@@ -84,6 +84,13 @@ El.prototype.removeChild = function (c) { var i = this.children.indexOf(c); if (
 El.prototype.addEventListener = function (t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); };
 El.prototype.removeEventListener = function () { };
 El.prototype.focus = function () { };
+/* 布局测量。假 DOM 没有排版引擎，返回全零是**诚实**的做法：
+   FLIP 动画靠"新旧位置之差"判断要不要播，零差值 = 不播，
+   正是测试环境该有的行为（真实验证在 测试/悬停诊断.cjs 那一层用真浏览器做）。
+   缺了它会让任何测量布局的产品代码直接抛错。 */
+El.prototype.getBoundingClientRect = function () {
+  return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0 };
+};
 El.prototype.click = function () { if (typeof this.onclick === 'function') this.onclick({ target: this }); };
 El.prototype.descendants = function () {
   var out = [];
@@ -800,6 +807,49 @@ test('决策标准排序按钮会改变权重顺序', function () {
   ok(w[second] > w[first], '上移后权重应变大');
   CP.ui.go('decision');
   has(byId('view').innerHTML, '决策标准排序');
+});
+
+test('排序行带 FLIP 定位标记，且移动时会挂动画钩子', function () {
+  // 滑动动画本身靠真浏览器验证（测试/排序动效诊断.cjs）。
+  // 假 DOM 没有排版，量不到位置，所以这里只测两件能测的：
+  //   ① 每行有 data-sortcid —— 没有它，重渲染后找不回"同一行"，
+  //      FLIP 就算不出位移，动画会静默失效；
+  //   ② 点移动按钮后 CP.ui.afterRender 被挂上 —— FLIP 的播放入口，
+  //      漏挂的话位置量完了却没人播。
+  CP.ui.route = 'decision';
+  byId('view').innerHTML = CP.pages.decision();
+  CP.bindPage('decision');
+
+  var rows = q('.sortrow[data-sortcid]');
+  eq(rows.length, CP.CRITERIA.length,
+    '每行都应带 data-sortcid，实际 ' + rows.length + ' 行有标记');
+  // 标记值必须能对上标准 id，否则重渲染后对不上号
+  var ids = rows.map(function (r) { return r.getAttribute('data-sortcid'); });
+  CP.CRITERIA.forEach(function (c) {
+    ok(ids.indexOf(c.id) >= 0, '标记里应含标准 id：' + c.id);
+  });
+
+  CP.ui.afterRender = null;
+  var order = CP.ui.archive.decision.criteriaOrder.slice();
+  var second = order[1];
+  // 钩子会在 render() 里被消费掉（执行完置回 null），所以不能在点击后直接查它，
+  // 那样看到的必然是 null。改成包一层，记录"它到底被调用过没有"。
+  var origRender = CP.ui.render;
+  var hookFireCount = 0;
+  var sawHookAsFunction = false;
+  CP.ui.render = function (opt) {
+    // render() 内部会把 afterRender 取出来执行，这里在它执行前偷看一下类型
+    if (typeof CP.ui.afterRender === 'function') sawHookAsFunction = true;
+    var r = origRender.apply(this, arguments);
+    hookFireCount += 1;
+    return r;
+  };
+  q1('[data-move="up"][data-cid="' + second + '"]').click();
+  CP.ui.render = origRender;
+
+  ok(sawHookAsFunction, '移动时应挂上 afterRender 钩子（FLIP 的播放入口）');
+  eq(hookFireCount, 1, '移动应只触发一次重渲染');
+  eq(CP.ui.archive.decision.criteriaOrder[0], second, '顺序仍应正确更新');
 });
 
 test('路径打分下拉框会写入覆盖值并改变加权得分', function () {

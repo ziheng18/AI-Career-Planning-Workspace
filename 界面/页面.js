@@ -217,7 +217,9 @@
       : CP.CRITERIA.map(function (c) { return c.id; });
     var sortHtml = order.map(function (cid, idx) {
       var c = CP.CRITERIA.filter(function (x) { return x.id === cid; })[0];
-      return '<div class="sortrow">'
+      // data-sortcid 是 FLIP 动画的定位标记：整页重渲染后按 id 找回同一行，
+      // 才能算出它从哪里滑到哪里。见 bindPage 里的 sortFlip。
+      return '<div class="sortrow" data-sortcid="' + esc(cid) + '">'
         + '<span class="rank">' + (idx + 1) + '</span>'
         + '<span class="lbl">' + esc(c.label) + '<i>' + esc(c.hint) + '</i></span>'
         + '<span class="mv">'
@@ -296,6 +298,36 @@
     });
 
     // 排序
+    // 排序：上下移动时让两行滑动过去，而不是瞬间换位。
+    //
+    // 为什么不能只用 CSS transition：移动会走 rerender()，那一步把整个
+    // #view 的 innerHTML 换掉——**旧元素被移除，新元素重新插入**，
+    // 元素之间没有任何可插值的状态，CSS 只会看到"跳变"。
+    // 所以用经典的 FLIP：先量旧位置 → 重渲染 → 量新位置 → 用 WAAPI
+    // 从旧位置滑到新位置。位移在整个过程中是连续可读的。
+    function sortFirstPositions() {
+      var map = {};
+      document.querySelectorAll('.sortrow[data-sortcid]').forEach(function (el) {
+        map[el.getAttribute('data-sortcid')] = el.getBoundingClientRect().top;
+      });
+      return map;
+    }
+    function sortFlipPlay(first) {
+      if (!first) return;
+      if (CP.ui.motionReduced && CP.ui.motionReduced()) return;
+      document.querySelectorAll('.sortrow[data-sortcid]').forEach(function (el) {
+        var id = el.getAttribute('data-sortcid');
+        if (!(id in first)) return;
+        var dy = first[id] - el.getBoundingClientRect().top;
+        if (!dy) return;                       // 没动的行不播
+        if (typeof el.animate !== 'function') return;
+        el.animate([
+          { transform: 'translateY(' + dy + 'px)' },
+          { transform: 'translateY(0)' }
+        ], { duration: 240, easing: 'cubic-bezier(.22,.61,.36,1)' });
+      });
+    }
+
     document.querySelectorAll('[data-move]').forEach(function (btn) {
       btn.onclick = function () {
         var cid = btn.getAttribute('data-cid');
@@ -310,6 +342,26 @@
         a.decision.criteriaOrder = order;
         a.computed = null;
         CP.store.save(a);
+
+        // FLIP：量旧位置 → 重渲染 → 量新位置 → 播
+        var first = sortFirstPositions();
+        // afterRender 在 render() 把内容写好之后执行，此时新位置已经可量。
+        // ★ 按钮反馈必须在这里加，不能在这里之前：rerender() 会把整个 #view
+        //   重写，之前加在旧按钮上的类随旧元素一起被丢弃，界面上什么也看不到。
+        CP.ui.afterRender = function () {
+          sortFlipPlay(first);
+          if (CP.ui.motionReduced && CP.ui.motionReduced()) return;
+          var fresh = document.querySelector(
+            '.sortrow[data-sortcid="' + cid + '"] [data-move="' + dir + '"]');
+          if (!fresh) return;
+          fresh.classList.remove('mv-hit');
+          void fresh.offsetWidth;                 // 强制重算，保证连点也能重播
+          fresh.classList.add('mv-hit');
+          fresh.addEventListener('animationend', function onHit() {
+            fresh.classList.remove('mv-hit');
+            fresh.removeEventListener('animationend', onHit);
+          });
+        };
         rerender();
       };
     });

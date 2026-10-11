@@ -161,6 +161,7 @@ Top3 岗位推荐 + 差距学习任务 + 主路径 / Plan B
 │   ├─ 触摸诊断.cjs           # 走 CDP 的真实触摸诊断（移动端仿真）
 │   ├─ 动效诊断.cjs           # 换页动画 × 减少动态效果偏好（CDP 模拟 + opacity 采样）
 │   ├─ 图表动效诊断.cjs       # 图表入场动画（采样 scaleX，带对照组）
+│   ├─ 排序动效诊断.cjs       # 排序上下移动的滑动动画（逐帧量 top）
 │   ├─ 悬停诊断.cjs           # 悬停在已选中控件上时的对比度（浅色+深色）
 │   ├─ 导出PDF.cjs            # 真正导出 PDF 并校验分页、配色、空白页
 │   ├─ PDF取文.cjs            # 从 PDF 里解出文字（核查某章节是否真的进了 PDF）
@@ -234,6 +235,7 @@ npm run test:browser     # 真实浏览器诊断（无头 Edge/Chrome，桌面�
 npm run test:mobile      # 真实浏览器诊断（窄屏视口 420×860）
 npm run test:touch       # 真实触摸诊断（CDP Input.dispatchTouchEvent，移动端仿真）
 npm run test:chart       # 图表入场动画（真实浏览器采样 scaleX，确认真的在播）
+npm run test:sort        # 排序上下移动的滑动动画（逐帧量行位置）
 npm run test:hover       # 悬停在"已选中"控件上时文字是否仍可读（浅色+深色各跑一遍）
 npm run test:pdf         # 真正导出 PDF 并校验分页、配色、空白页、章节齐全
 npm run test:motion      # 换页动画 × "减少动态效果"偏好（真实浏览器 + CDP 模拟）
@@ -248,6 +250,7 @@ npm run demo             # 重新生成示例档案
 - **界面层冒烟测试**（90 项）：用一个最小 DOM 仿真把 `工作台.html` 里的 14 个脚本按真实顺序加载并真实触发点击。外壳 DOM 是**直接解析 `工作台.html` 的 `<body>`** 得到的，不是手工复刻——否则改 HTML 会导致假失败。
 - **浏览器诊断**（`test:browser` / `test:mobile`）：用无头 Edge 打开工作台的真实副本，做 `elementFromPoint` 命中测试、计算样式检查，以及**在坐标上派发真实事件**的指针级点击。
 - **触摸诊断**（`test:touch`）：走 Chrome DevTools 协议（`Emulation.setTouchEmulationEnabled` + `Input.dispatchTouchEvent`），做真机式的触摸点击。**这一层才发现了 × 点不动的真正原因**——合成鼠标点击会"全绿"，因为 `.click()` 与 `elementFromPoint` 都不反映触摸时元素的实时位置。
+- **排序动效诊断**（`test:sort`）：排序移动会走整页重渲染（DOM 被替换），纯 CSS transition 只会看到跳变，所以用 FLIP。这里**逐帧量行的 `top`** —— 只有起止两值 = 瞬移（没生效），多个中间值 = 真的在滑动。验证过：禁用 FLIP 后该断言报 2 个值并 FAIL。
 - **悬停诊断**（`test:hover`）：用 CDP 派发真实 `mouseMoved` 触发 `:hover`，再按祖先链合成实际底色算对比度。**假 DOM 没有伪类状态、浏览器诊断也不测悬停**，所以这类错误只能这样抓。浅色与深色各跑一遍（修复本身就分了两套主题）。
 - **图表动效诊断**（`test:chart`）：SVG 的入场动画最容易"写了却不生效"——几何属性不能做 CSS transition，`transform-origin` 在 SVG 里按视口坐标算。所以这里不看代码，直接**采样 `scaleX`** 确认条形真的从 0 长出来，并带一个**对照组**（真换页必须重播），防止"不播也算通过"的弱断言。
 - **PDF 校验**（`test:pdf`）：用 `Page.printToPDF` 真正导出一份 PDF，再解压页面内容流，检查分页、空白页，以及**品牌色是否真的写进了 PDF**。这一层抓到了"打印视图缺设计令牌导致图表全黑"——那个 bug 在网页面里完全看不出来。

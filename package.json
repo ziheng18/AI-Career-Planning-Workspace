@@ -14,8 +14,9 @@
     "test:chart": "node 测试/图表动效诊断.cjs",
     "test:pdf": "node 测试/导出PDF.cjs",
     "test:http": "node 测试/HTTP部署自检.cjs",
-    "test:all": "npm test && npm run test:browser && npm run test:mobile && npm run test:touch && npm run test:motion && npm run test:chart && npm run test:hover && npm run test:pdf && npm run test:http",
+    "test:all": "npm test && npm run test:browser && npm run test:mobile && npm run test:touch && npm run test:motion && npm run test:chart && npm run test:sort && npm run test:hover && npm run test:pdf && npm run test:http",
     "demo": "node 测试/生成示例档案.cjs",
-    "test:hover": "node 测试/悬停诊断.cjs"
+    "test:hover": "node 测试/悬停诊断.cjs",
+    "test:sort": "node 测试/排序动效诊断.cjs"
   }
 }
