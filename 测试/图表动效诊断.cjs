@@ -235,6 +235,75 @@ async function main() {
     + '；采样 ' + replay.length + ' 帧（其中 ' + nonEmpty + ' 帧有元素）'
     + '；换页前首页图表数 = ' + homeHasCharts);
 
+  /* ── 方向断言：条形必须从锚点长出，而不是两头一起动 ──
+     为什么单独测方向：只断言"scaleX 会变小"是**弱断言**——
+     方向反了（两头一起缩放、看起来像从右侧淡入）也照样通过。
+     用户报过这个现象，所以这里直接量矩形边缘。 */
+  async function burstDirection(label) {
+    var frames = await ev('(function(){' +
+      'var els=[].slice.call(document.querySelectorAll(\'[data-anim="grow"]\'));' +
+      'var out=[];' +
+      'function snap(){' +
+      '  var row=[];' +
+      '  els.forEach(function(e){' +
+      '    var m=/matrix\\(([-\\d.]+),\\s*([-\\d.]+)/.exec(getComputedStyle(e).transform);' +
+      '    var sx=m?Number(m[1]):1;' +
+      '    var r=e.getBoundingClientRect();' +
+      '    row.push([sx, Math.round(r.left), Math.round(r.right)]);' +
+      '  });' +
+      '  out.push(row);' +
+      '}' +
+      'snap();' +
+      'return new Promise(function(res){' +
+      '  var n=0;' +
+      '  function step(){ snap(); n++; if(n<40) requestAnimationFrame(step); else res({frames:out, els:els.length}); }' +
+      '  requestAnimationFrame(step);' +
+      '});})()');
+    // 取宽度最小的一帧作为起点（不是第一帧——可能动画还没开始）
+    var best = null, bestW = Infinity;
+    frames.frames.forEach(function (f) {
+      var w = f.reduce(function (a, x) { return a + (x[2] - x[1]); }, 0);
+      if (f.length && w < bestW) { bestW = w; best = f; }
+    });
+    var last = frames.frames[frames.frames.length - 1];
+    return { start: best, end: last, n: frames.els, label: label };
+  }
+
+  // 条形图：left 必须固定，right 必须增长
+  await ev('CP.ui.go("result");');
+  await sleep(500);
+  await ev('(function(){var b=document.querySelector(\'.result-tabs [data-tab="profile"]\'); if(b) b.click();})()');
+  await sleep(1200);
+  await ev('CP.ui.animateCharts(document.getElementById("view"));');
+  var bars = await burstDirection('bars');
+  var barsOk = true, barsDetail = [];
+  bars.start.forEach(function (s, i) {
+    var e = bars.end[i];
+    if (Math.abs(e[1] - s[1]) > 2) barsOk = false;      // left 不该动
+    if (e[2] - s[2] < 10) barsOk = false;               // right 必须显著增大
+    if (i < 3) barsDetail.push('条' + i + ' left ' + s[1] + '→' + e[1] + ' right ' + s[2] + '→' + e[2]);
+  });
+  record('条形从锚点向右长出（左边缘不动）', barsOk, barsDetail.join('；'));
+
+  // 缺口图左半：right 固定在中线，left 向左减小
+  await ev('(function(){var b=document.querySelector(\'.result-tabs [data-tab="gap"]\'); if(b) b.click();})()');
+  await sleep(1200);
+  await ev('CP.ui.animateCharts(document.getElementById("view"));');
+  var gaps = await burstDirection('gaps');
+  var gapOk = true, gapDetail = [];
+  // 缺口图里同性排布是"左条、右条、左条、右条…"，偶数索引是左半条
+  gaps.start.forEach(function (s, i) {
+    if (i > 5) return;
+    var e = gaps.end[i];
+    var isLeft = (i % 2 === 0);
+    if (isLeft) {
+      if (Math.abs(e[2] - s[2]) > 2) gapOk = false;     // right 固定
+      if (s[1] - e[1] < 10) gapOk = false;              // left 必须减小
+    }
+    if (i < 3) gapDetail.push('条' + i + (isLeft ? '(左半)' : '(右半)') + ' left ' + s[1] + '→' + e[1] + ' right ' + s[2] + '→' + e[2]);
+  });
+  record('缺口图左半条从中线向左长出（右边缘不动）', gapOk, gapDetail.join('；'));
+
   /* ── reduced-motion 下不播 ── */
   await setMotion(true);
   await sleep(300);

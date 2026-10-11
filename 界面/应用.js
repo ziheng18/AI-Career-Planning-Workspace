@@ -327,17 +327,22 @@
         var timing = { duration: 420, delay: delay, easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'both' };
 
         if (kind === 'grow') {
-          // 条形/缺口条：从原点横向长出。
-          // 读取 data-anim-origin（SVG 用户坐标），减去元素自身的 x，
-          // 得到"相对自身"的位移，再把缩放原点也设到那里。
-          var origin = Number(el.getAttribute('data-anim-origin') || 0);
-          var x = Number(el.getAttribute('x') || 0);
+          // 条形/缺口条：从锚点横向长出。
+          //
+          // 关键：SVG 元素的 transform-origin 是**用户坐标系**里的坐标
+          // （本项目的 svg 没设 transform-box，取默认 view-box）。
+          // 所以直接把锚点坐标写进 transform-origin 即可——**不要**再去
+          // 用 translateX 补偿：我第一版就是拿 ox = (origin - x) 做位移，
+          // 方向搞反，结果条形两头一起动（左移 69px、右扩 195px），
+          // 看起来像"右侧一大块淡入"而不是从左边长出来。
+          var origin = el.getAttribute('data-anim-origin');
+          if (origin == null) return;
           var w = Number(el.getAttribute('width') || 0);
           if (!(w > 0)) return;
-          var ox = Math.max(0, Math.min(w, origin - x));   // 原点在条内的位置
+          el.style.transformOrigin = origin + 'px 0px';
           el.animate([
-            { transform: 'translateX(' + ox + 'px) scaleX(0)' },
-            { transform: 'translateX(0) scaleX(1)' }
+            { transform: 'scaleX(0)' },
+            { transform: 'scaleX(1)' }
           ], timing);
         } else if (kind === 'pop') {
           // 雷达多边形：从中心展开。用 getBBox 拿实心尺寸算中心。
