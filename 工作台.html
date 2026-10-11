@@ -10,7 +10,7 @@
      浏览器可能仍在用旧副本，看到的是"修好的样子没生效"。
      改动样式或配色时把这个版本号一起改掉。
      本地 file:// 打开时查询串会被忽略，没有副作用。 -->
-<link rel="stylesheet" href="样式/工作台.css?v=20261011b">
+<link rel="stylesheet" href="样式/工作台.css?v=20261011c">
 <style>
   /* 由本地 ComfyUI 生成的视觉素材（Qwen-Image-2.1）。
      只作装饰：图里没有任何文字，所有文字都由 HTML 渲染，因此可访问、可打印、可搜索。 */
@@ -39,6 +39,9 @@
         <b>职业生涯规划工作台</b>
         <span>人工智能专业 · 课程实践</span>
       </div>
+      <!-- 抽屉的 × 只在真正的手机宽度（≤620px）显示。
+           桌面端与宽平板（≤900px 但 >620px）打开抽屉时，遮罩或点导航项即可关闭，
+           不需要额外一个 ×。 -->
       <button class="icon-btn drawer-close" id="btnDrawerClose" aria-label="关闭导航菜单">
         <span aria-hidden="true">×</span>
       </button>

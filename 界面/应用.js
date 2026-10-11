@@ -40,7 +40,13 @@
         CP.ui.go(location.hash ? location.hash.slice(1) : 'home');
       });
 
-      // 窄屏抽屉
+      // 窄屏抽屉。关闭方式有三种，都保留：点 ×、点遮罩、按 Esc。
+      //
+      // × 按钮只在真正的手机宽度（≤620px）显示，见样式表。
+      // 桌面端与宽平板打开抽屉时遮罩已覆盖内容区，不需要它；
+      // 但一旦显示就必须可用——**绑定与显示条件必须成对改**，
+      // 曾经只删了显示条件忘了删绑定（或反过来），
+      // 结果按钮还在、onclick 却是空的，按下去毫无反应。
       var btn = document.getElementById('btnDrawer');
       if (btn) btn.onclick = function () { CP.ui.openDrawer(); };
       var close = document.getElementById('btnDrawerClose');

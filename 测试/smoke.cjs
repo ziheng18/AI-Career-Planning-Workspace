@@ -1375,10 +1375,46 @@ test('窄屏抽屉：开关、遮罩、Esc、点击导航后自动收起', funct
   ok(sb.document.body.classList.contains('drawer-open') === false, '关闭后应解除滚动锁');
   ok(byId('scrim').hidden === true, '关闭后遮罩应重新隐藏');
 
-  // 点关闭按钮
+  // 侧栏里的 × 关闭按钮：显示条件交给 CSS 的 ≤620px 媒体查询，
+  // 这里只验证"它存在、且绑了 onclick"。按钮必须在，因为手机上要靠它关闭——
+  // 曾经出过"按钮还在但 onclick 被删掉"，按下去毫无反应（用户报的就是这个）。
+  var closeBtn = byId('btnDrawerClose');
+  ok(closeBtn, '侧栏应有 × 关闭按钮（手机上靠它关闭抽屉）');
+  eq(typeof closeBtn.onclick, 'function', '× 按钮必须绑了 onclick，否则按下去没反应');
   CP.ui.openDrawer();
-  byId('btnDrawerClose').onclick();
-  eq(CP.ui.drawerOpen, false, '点关闭按钮应关闭');
+  closeBtn.onclick();
+  eq(CP.ui.drawerOpen, false, '点 × 应关闭抽屉');
+
+  // 样式表必须让它在窄屏隐藏、只在手机宽度显示，且规则要排在 .icon-btn 之后
+  // （两者特异性相同，CSS 按源码顺序决胜；写反了会被 .icon-btn 的 display:grid 盖掉）
+  var css = require('fs').readFileSync(
+    require('path').resolve(ROOT, '样式', '工作台.css'), 'utf8');
+  var iIcon = css.indexOf('.icon-btn {');
+  var iHide = css.indexOf('.drawer-close { display: none; }');
+  var iShow = css.indexOf('.drawer-close { display: grid; }');
+  ok(iHide >= 0, '应有 .drawer-close 的默认隐藏规则');
+  ok(iShow >= 0, '应有窄屏显示规则');
+  ok(iHide > iIcon,
+    '.drawer-close 的隐藏规则必须写在 .icon-btn 之后，否则会被它的 display:grid 盖掉');
+
+  // 用括号深度判断"显示规则落在哪个媒体查询里"。
+  // 不能拿 @media 到 @media 之间的文本做正则——跨块匹配会误判。
+  function mediaOf(src, index) {
+    var depth = 0, stack = [];
+    var lines = src.slice(0, index).split('\n');
+    lines.forEach(function (line) {
+      var t = line.trim();
+      var isMedia = /@media/.test(t);
+      for (var k = 0; k < line.length; k++) {
+        if (line[k] === '{') { depth++; stack.push(isMedia ? t : null); isMedia = false; }
+        else if (line[k] === '}') { depth--; stack.pop(); }
+      }
+    });
+    return stack.filter(Boolean).join(' ⊃ ');
+  }
+  var at = mediaOf(css, iShow);
+  ok(at.indexOf('620px') >= 0, '× 的显示规则应落在 ≤620px 媒体查询内，实际在：' + (at || '顶层'));
+  ok(at.indexOf('900px') < 0, '不应再在 ≤900px 里显示 ×（那个断点包含桌面缩窄的窗口）');
 
   // Esc 关闭
   CP.ui.openDrawer();

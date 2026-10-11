@@ -94,7 +94,9 @@ a { color: var(--brand); }
 /* 顶栏与遮罩：只在窄屏出现，宽屏下彻底不参与布局 */
 .topbar { display: none; }
 .scrim { display: none; }
-.drawer-close { display: none; }
+/* 注意：抽屉 × 的 display 规则放在 .icon-btn 之后（见下方"图标按钮"一节）。
+   两者特异性相同（都是单个类），CSS 按源码顺序决胜——
+   写在 .icon-btn 之前会被它的 display:grid 覆盖掉。 */
 
 .sidebar {
   width: 258px;
@@ -214,6 +216,12 @@ a { color: var(--brand); }
 }
 .icon-btn:hover { border-color: var(--ink-3); color: var(--ink); }
 .icon-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* 抽屉的 × 默认不显示，只在真正的手机宽度（≤620px）出现（见下方媒体查询）。
+   必须写在 .icon-btn **之后**：两者特异性相同，靠源码顺序决胜。
+   为什么不用 900px 作断点：900px 是"侧栏变抽屉"的断点，但 ≤900px 里还包含
+   宽平板与桌面端缩窄的窗口——那些尺寸下遮罩已覆盖内容区，点它即可关闭，
+   再放一个 × 是多余的。 */
+.drawer-close { display: none; }
 .icon-bars { display: flex; flex-direction: column; gap: 3px; }
 .icon-bars i { display: block; width: 15px; height: 2px; border-radius: 2px; background: currentColor; }
 
@@ -268,7 +276,6 @@ a { color: var(--brand); }
   }
   /* 抽屉打开时锁住背景滚动 */
   body.drawer-open { overflow: hidden; }
-  .drawer-close { display: grid; }
 
   /* 遮罩 */
   .scrim {
@@ -299,6 +306,10 @@ a { color: var(--brand); }
 @media (max-width: 620px) {
   .page-head h1 { font-size: 19px; }
   .page-head .sub { font-size: 12.5px; }
+  /* 真正的手机宽度才显示抽屉的 ×。
+     这个断点必须与 界面/应用.js 里的 onclick 绑定同时存在——
+     只改一边会留下一个"看着能点、按下去没反应"的死按钮。 */
+  .drawer-close { display: grid; }
 }
 
 /* ---------- 卡片与网格 ---------- */

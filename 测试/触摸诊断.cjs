@@ -213,7 +213,12 @@ async function main() {
   record('抽屉可见且未 inert',
     (await ev('(function(){var s=document.getElementById("sidebar");var c=getComputedStyle(s);' +
       'return c.visibility+"|"+c.transform+"|"+s.hasAttribute("inert");})()')) === 'visible|none|false');
-  record('打开后关闭按钮在视口内',
+  // × 按钮只在真正的手机宽度显示（≤620px），触摸诊断跑在 390px，
+  // 所以这里它**应该存在且能点到**——手机上它是主要的关闭手段。
+  record('手机宽度下 × 按钮可见',
+    (await ev('(function(){var b=document.getElementById("btnDrawerClose");' +
+      'return !!b && getComputedStyle(b).display !== "none";})()')) === true);
+  record('× 按钮在视口内',
     (await ev('document.getElementById("btnDrawerClose").getBoundingClientRect().left')) >= 0);
 
   await tap('#btnDrawerClose');
@@ -227,16 +232,17 @@ async function main() {
   record('开完立刻点 × 也能关闭', (await ev('CP.ui.drawerOpen')) === false,
     '× 当时 left=' + Math.round(immediateLeft));
 
+  // 遮罩也要能关（宽平板/桌面缩窄时没有 ×，只能靠它）
+  await tap('#btnDrawer');
+  await sleep(200);
+  await tap('#scrim');
+  record('触摸遮罩关闭抽屉', (await ev('CP.ui.drawerOpen')) === false);
+
   await tap('#btnDrawer');
   await sleep(200);
   await tap('[data-route="riasec"]');
   record('触摸导航项切页并收起抽屉',
     (await ev('CP.ui.route')) === 'riasec' && (await ev('CP.ui.drawerOpen')) === false);
-
-  await tap('#btnDrawer');
-  await sleep(200);
-  await tap('#scrim');
-  record('触摸遮罩关闭抽屉', (await ev('CP.ui.drawerOpen')) === false);
 
   /* ---------------- 能力清单：真实触摸勾选 ---------------- */
   console.log('\n— 能力清单（真实触摸勾选）—');
