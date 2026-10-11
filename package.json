@@ -10,9 +10,10 @@
     "test:browser": "node 测试/浏览器诊断.cjs",
     "test:mobile": "node 测试/mobile.cjs",
     "test:touch": "node 测试/触摸诊断.cjs",
+    "test:motion": "node 测试/动效诊断.cjs",
     "test:pdf": "node 测试/导出PDF.cjs",
     "test:http": "node 测试/HTTP部署自检.cjs",
-    "test:all": "npm test && npm run test:browser && npm run test:mobile && npm run test:touch && npm run test:pdf && npm run test:http",
+    "test:all": "npm test && npm run test:browser && npm run test:mobile && npm run test:touch && npm run test:motion && npm run test:pdf && npm run test:http",
     "demo": "node 测试/生成示例档案.cjs"
   }
 }

@@ -204,34 +204,40 @@
       var view = document.getElementById('view');
       view.innerHTML = CP.pages[route] ? CP.pages[route]() : '<div class="empty">页面不存在</div>';
 
-      // 换页时重播入场动画。
+      // ── 换页入场动画 ──
       //
       // 为什么需要手动触发：`#view` 元素上就带着 .wrap 类，只在首次加载时建一次，
       // 之后都是换 innerHTML，CSS 动画不会自己重播（实测 getAnimations() 恒为 0）。
       // 而"原地重渲染"（决策页每次点按钮，keepScroll 为真）必须**不播**，
-      // 否则点一下按钮整页就淡入一次。
-      //
-      // keepScroll === false 恰好就是"真正换页"的判据，直接复用，不另造状态。
+      // 否则点一下按钮整页就淡入一次。keepScroll === false 恰好是"真正换页"的判据。
       //
       // 为什么用内联动画而不是加类：
-      //   `#view` 本身就带 .wrap，页面加载时已经播过一次 fade-up。
-      //   之后无论"摘类再加类"还是"跨两帧再加类"，这个元素都不会重新开始动画
-      //   （实测 getAnimations() 恒为 0、opacity 恒为 1；而同样规则的裸 div 能播）。
-      //   内联 animation 的赋值会强制样式系统重新解析，实测可靠。
+      //   `#view` 本身就带 .wrap，首屏已播过一次 fade-up，之后"摘类再加类"
+      //   不会让它重新开始动画（实测 getAnimations() 恒为 0，而同样规则的裸 div 能播）。
       //
       // ★ 必须在 JS 里判断 reduced-motion：
       //   内联样式优先级高于样式表，`@media (prefers-reduced-motion: reduce)`
-      //   里的 `animation:none` 拦不住内联值。漏了这一步，开了"减少动态效果"的
-      //   用户反而会被强行播放动画。
+      //   里的 `animation:none` 拦不住内联值。
+      //
+      // ★ 必须靠"清空内联值"来复位，不能用"是否有值"推断正在播：
+      //   动画被中途取消时触发的是 animationcancel，**不是 animationend**。
+      //   只监听 animationend 会让内联值永久残留——用户开启"减少动态效果"
+      //   打断了动画，再关掉之后，后续换页就再也不播了（实测复现）。
+      //   所以：每次渲染先把内联值清空复位，再决定要不要播。
+      view.style.animation = '';
       if (opt.keepScroll === false && !CP.ui.motionReduced()) {
+        // 先置 none 脱离当前动画，下一帧再赋具体动画，逼样式系统重新开始
         view.style.animation = 'none';
         requestAnimationFrame(function () {
           view.style.animation = 'fade-up .22s var(--ease)';
-          view.addEventListener('animationend', function onEnd() {
-            // 播完清掉内联值，避免它一直压着样式表
+          // end 与 cancel 都要收尾：任何中断路径都不能留下内联值
+          function cleanup() {
             view.style.animation = '';
-            view.removeEventListener('animationend', onEnd);
-          });
+            view.removeEventListener('animationend', cleanup);
+            view.removeEventListener('animationcancel', cleanup);
+          }
+          view.addEventListener('animationend', cleanup);
+          view.addEventListener('animationcancel', cleanup);
         });
       }
 

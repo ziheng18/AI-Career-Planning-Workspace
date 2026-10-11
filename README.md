@@ -159,6 +159,7 @@ Top3 岗位推荐 + 差距学习任务 + 主路径 / Plan B
 │   ├─ mobile.cjs            # 窄屏视口下跑一遍浏览器诊断
 │   ├─ 填充能力.cjs           # 共享测试助手：能力清单的勾选式作答
 │   ├─ 触摸诊断.cjs           # 走 CDP 的真实触摸诊断（移动端仿真）
+│   ├─ 动效诊断.cjs           # 换页动画 × 减少动态效果偏好（CDP 模拟 + opacity 采样）
 │   ├─ 导出PDF.cjs            # 真正导出 PDF 并校验分页、配色、空白页
 │   ├─ PDF取文.cjs            # 从 PDF 里解出文字（核查某章节是否真的进了 PDF）
 │   └─ 导出解耦.test.js       # 架构约束：导出层不得依赖界面层
@@ -231,6 +232,7 @@ npm run test:browser     # 真实浏览器诊断（无头 Edge/Chrome，桌面�
 npm run test:mobile      # 真实浏览器诊断（窄屏视口 420×860）
 npm run test:touch       # 真实触摸诊断（CDP Input.dispatchTouchEvent，移动端仿真）
 npm run test:pdf         # 真正导出 PDF 并校验分页、配色、空白页、章节齐全
+npm run test:motion      # 换页动画 × "减少动态效果"偏好（真实浏览器 + CDP 模拟）
 npm run test:http        # 起本地静态服务，验证 HTTP 部署下的行为
 npm run test:all         # 上面全部
 npm run demo             # 重新生成示例档案
@@ -243,6 +245,7 @@ npm run demo             # 重新生成示例档案
 - **浏览器诊断**（`test:browser` / `test:mobile`）：用无头 Edge 打开工作台的真实副本，做 `elementFromPoint` 命中测试、计算样式检查，以及**在坐标上派发真实事件**的指针级点击。
 - **触摸诊断**（`test:touch`）：走 Chrome DevTools 协议（`Emulation.setTouchEmulationEnabled` + `Input.dispatchTouchEvent`），做真机式的触摸点击。**这一层才发现了 × 点不动的真正原因**——合成鼠标点击会"全绿"，因为 `.click()` 与 `elementFromPoint` 都不反映触摸时元素的实时位置。
 - **PDF 校验**（`test:pdf`）：用 `Page.printToPDF` 真正导出一份 PDF，再解压页面内容流，检查分页、空白页，以及**品牌色是否真的写进了 PDF**。这一层抓到了"打印视图缺设计令牌导致图表全黑"——那个 bug 在网页面里完全看不出来。
+- **动效诊断**（`test:motion`）：用 CDP 的 `Emulation.setEmulatedMedia` 切换 `prefers-reduced-motion`，并给 `#view` 挂 rAF 采样器读 opacity，**判断动画到底有没有播**（不能只看 `animationName`，它会说谎）。覆盖：正常偏好要播、减少动态效果不播、关闭偏好后每个页面都要能恢复、动画播放中换页要能重启、原地重渲染始终不播。这些全是运行时行为，纯 CSS 断言测不出来。
 
 > **测试边界**：这些测试覆盖布局、命中、交互与打印输出，但不判断视觉是否好看（间距、配色、观感）；那部分仍需人工确认。
 
@@ -301,6 +304,7 @@ PDF 里的中文是字形编号 + ToUnicode 映射，直接 grep 字节流搜不
 | 勾选式清单的计数不能带分母 | 显示 `7/48` 会暗示"要做完 48 项" | 与上一条同源：分母是"要求"的暗示。勾选式只报 `已勾 N 项`；Likert 题才报 `已答/总题数`（那里分母确实是要求）。判据是 `threshold < total` |
 | 假 DOM 的三个隐藏缺口 | 断言恒真、读不到文本、读不到条宽 | `textContent` 必须聚合后代；`style` 必须真读写 `style` 特性（否则 `style.width !== '0%'` 恒真）；`checked`/`value` 要反映特性。缺一个就会放过真 bug |
 | 换页动画只能用内联 animation | 摘类再加类不重播，换页毫无过渡 | `#view` 就是 `.wrap`，首屏已播过一次 fade-up；之后"摘类再加类"或"跨两帧再加类"都不会让它重新开始（实测 `getAnimations()` 恒为 0，而同样规则的裸 div 能播）。内联赋值会强制样式系统重新解析 |
+| 动画收尾要同时监听 `animationcancel` | 内联值可能残留 | 动画**被中途取消**时触发 `animationcancel` 而非 `animationend`，只监听后者收不到尾。渲染开头先清空内联值 + 两个事件都收尾（**注**：用户报的"关掉动态效果再打开后部分页面不播"未能在无头环境复现，这是防御性加固，不是已证实的根因） |
 | 内联动画必须在 JS 里判 reduced-motion | 开了"减少动态效果"的用户反而被强行播动画 | 内联样式优先级高于样式表，`@media (prefers-reduced-motion: reduce){animation:none}` 拦不住它。要有 `CP.ui.motionReduced()` 兜底 |
 | 假 DOM 要提供 requestAnimationFrame | 产品代码一用它，整轮测试全部抛错 | 缺了它启动流程直接抛 `requestAnimationFrame is not defined`，22 项连带失败。凡是产品代码用到的浏览器 API，测试垫片都得有 |
 | 同一条错误可能散在多处 | 改了首页与侧栏，能力清单页仍写着 `21/48` | 显示类约定（如"勾选式不带分母"）必须在**每个**渲染点都改到。加断言覆盖所有渲染点，别只测一处 |
