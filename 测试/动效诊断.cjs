@@ -205,29 +205,26 @@ async function main() {
   record('关闭偏向后每个页面都能恢复换页动画', dead.length === 0,
     recovered.map(function (x) { return x.route + ':' + x.low + '/' + x.frames; }).join('  '));
 
-  /* ── 关键回归：动画"正在播"时换页，必须能重新开始 ──
-     这是用户报的 bug 的确定性触发条件。
-     内联值此时已经是 `fade-up ...`；如果只写 'none' → 'fade-up'，
-     计算值在同一帧内没有净变化，浏览器认为动画还在跑、不会重启。
-     必须先真正清空内联值，让动画回到"无"的状态。 */
+  /* ── 关键回归：动画"正在播"时再换页，必须能重新开始 ──
+     用真实的快速连续导航制造这个场景（不要靠手动挂内联值——
+     现在的实现用 WAAPI，不依赖内联样式，手动造的状态不再代表实际情况）。 */
   await setMotion(false);
   await sleep(1300);
-  record('（前置）内联值已清空', await ev('document.getElementById("view").style.animation') === '');
 
-  // 人为制造"正在播"的状态：直接给它挂一个长动画
-  await ev('document.getElementById("view").style.animation="fade-up 4s linear"');
-  await sleep(250);
-  var running = await ev('(function(){var v=document.getElementById("view");' +
+  await ev('CP.ui.go("result");');          // 这次导航会播 220ms 动画
+  await sleep(60);                          // 动画播到一半
+  var midState = await ev('(function(){var v=document.getElementById("view");' +
     'return JSON.stringify({anims:v.getAnimations().length, opacity:Number(getComputedStyle(v).opacity)});})()');
-  record('（前置）已在播放中', JSON.parse(running).anims > 0, running);
+  var mid = JSON.parse(midState);
+  record('（前置）上一次动画确实在播', mid.anims > 0 && mid.opacity < 0.99, midState);
 
   await ev(SAMPLER);
-  await ev('CP.ui.go("result");');
+  await ev('CP.ui.go("action");');           // 动画未播完就再换页
   await sleep(700);
   await ev('window.__stop=true;');
   var during = await ev('window.__s');
   var duringLow = during.filter(function (v) { return v < 0.99; }).length;
-  record('播放中换页仍能重新开始动画', duringLow > 0,
+  record('动画未播完时换页仍能重新开始', duringLow > 0,
     '低透明度帧 ' + duringLow + '/' + during.length + '（为 0 说明动画没能重启）');
 
   /* ── 反复开关偏好，动画不能彻底失效 ── */

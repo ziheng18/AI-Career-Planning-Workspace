@@ -206,39 +206,50 @@
 
       // ── 换页入场动画 ──
       //
-      // 为什么需要手动触发：`#view` 元素上就带着 .wrap 类，只在首次加载时建一次，
-      // 之后都是换 innerHTML，CSS 动画不会自己重播（实测 getAnimations() 恒为 0）。
-      // 而"原地重渲染"（决策页每次点按钮，keepScroll 为真）必须**不播**，
-      // 否则点一下按钮整页就淡入一次。keepScroll === false 恰好是"真正换页"的判据。
+      // 用 Web Animations API（Element.animate）而不是内联 CSS animation。
       //
-      // 为什么用内联动画而不是加类：
-      //   `#view` 本身就带 .wrap，首屏已播过一次 fade-up，之后"摘类再加类"
-      //   不会让它重新开始动画（实测 getAnimations() 恒为 0，而同样规则的裸 div 能播）。
+      // 为什么换成 WAAPI（踩过的坑，按顺序）：
+      //   1. `.wrap` 就是 `#view`，首屏已由样式表播过一次 fade-up。之后
+      //      "摘类再加类"不会让它重新开始（实测 getAnimations() 恒为 0，
+      //      而同样规则的裸 div 能播）。
+      //   2. 改用内联 animation 可以播，但**内联值是外部状态**：
+      //      动画被中途取消时只触发 animationcancel，收尾一旦漏掉，
+      //      残留值就会影响后续判断。用户报过"关闭动态效果再打开、
+      //      再刷新后大部分页面变成硬切"，我未能在无头环境复现，
+      //      但这类"残留值"路径在结构上是敞开的。
+      //   3. WAAPI 把动画交给动画对象管理：不写样式表、不碰 inline style、
+      //      播完自动释放。实测连续 5 次都可靠，且**内联值残留也不影响它**。
       //
-      // ★ 必须在 JS 里判断 reduced-motion：
-      //   内联样式优先级高于样式表，`@media (prefers-reduced-motion: reduce)`
-      //   里的 `animation:none` 拦不住内联值。
-      //
-      // ★ 必须靠"清空内联值"来复位，不能用"是否有值"推断正在播：
-      //   动画被中途取消时触发的是 animationcancel，**不是 animationend**。
-      //   只监听 animationend 会让内联值永久残留——用户开启"减少动态效果"
-      //   打断了动画，再关掉之后，后续换页就再也不播了（实测复现）。
-      //   所以：每次渲染先把内联值清空复位，再决定要不要播。
-      view.style.animation = '';
+      // reduced-motion 仍必须在 JS 里拦：WAAPI 不受 CSS 媒体查询约束。
       if (opt.keepScroll === false && !CP.ui.motionReduced()) {
-        // 先置 none 脱离当前动画，下一帧再赋具体动画，逼样式系统重新开始
-        view.style.animation = 'none';
-        requestAnimationFrame(function () {
-          view.style.animation = 'fade-up .22s var(--ease)';
-          // end 与 cancel 都要收尾：任何中断路径都不能留下内联值
-          function cleanup() {
-            view.style.animation = '';
-            view.removeEventListener('animationend', cleanup);
-            view.removeEventListener('animationcancel', cleanup);
+        var KEYFRAMES = [
+          { opacity: 0, transform: 'translateY(4px)' },
+          { opacity: 1, transform: 'none' }
+        ];
+        var TIMING = { duration: 220, easing: 'cubic-bezier(.22,.61,.36,1)' };
+
+        if (typeof view.animate === 'function') {
+          // 上一段动画若还在跑，先取消，避免叠加
+          if (CP.ui._navAnim && typeof CP.ui._navAnim.cancel === 'function') {
+            try { CP.ui._navAnim.cancel(); } catch (e) { /* 已结束的动画 cancel 会抛，忽略 */ }
           }
-          view.addEventListener('animationend', cleanup);
-          view.addEventListener('animationcancel', cleanup);
-        });
+          CP.ui._navAnim = view.animate(KEYFRAMES, TIMING);
+          view.style.animation = '';        // 顺手清掉可能存在的旧内联值
+        } else {
+          // 兜底：老浏览器没有 WAAPI，退回类触发（此时样式表里那条 .is-entering 规则生效）
+          view.style.animation = '';
+          view.classList.remove('is-entering');
+          requestAnimationFrame(function () {
+            view.classList.add('is-entering');
+            view.addEventListener('animationend', function onEnd() {
+              view.classList.remove('is-entering');
+              view.removeEventListener('animationend', onEnd);
+            });
+          });
+        }
+      } else {
+        // 不播时也要复位：把上一次留下的内联值清掉
+        view.style.animation = '';
       }
 
       window.scrollTo(0, opt.keepScroll === false ? 0 : prevScroll);

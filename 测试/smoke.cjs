@@ -1760,46 +1760,76 @@ test('完成进度条与右侧数字同源，不出现"条满数字未满"', fun
   has(abilityRow.textContent, '✓', '达标后应显示勾选标记');
 });
 
-test('换页动画：换页播、原地重渲染不播，且不残留内联样式', function () {
-  // 为什么值得测：换页动画是用**内联** animation 实现的（因为 #view 就是 .wrap，
-  // 摘类再加类不会让它重新开始动画）。内联值有两个风险：
-  //   ① 播完不清掉，会一直压着样式表；
-  //   ② 在"减少动态效果"下不该播——内联优先级高于媒体查询，必须由 JS 拦。
+test('换页动画：换页播、原地重渲染不播', function () {
+  // 实现已从"内联 CSS animation"改为 Web Animations API。
+  // 为什么改：内联值是**外部状态**，动画被中途取消时收尾一旦漏掉就会残留，
+  // 进而影响后续换页（用户报过"关闭动态效果再打开、刷新后大部分页面硬切"）。
+  // WAAPI 把动画交给动画对象管理：不写样式表、不碰 inline style、播完自动释放。
+  //
+  // 假 DOM 没有 Element.animate，所以这里用垫片记录调用；
+  // 真实浏览器里"动画到底有没有播"由 测试/动效诊断.cjs 采样 opacity 覆盖。
   var view = byId('view');
-  function fireEnd() {
-    (view.listeners.animationend || []).slice().forEach(function (f) { f({ type: 'animationend' }); });
-  }
+  var calls = [];
+  var realAnimate = view.animate;
+  view.animate = function (keyframes, timing) {
+    calls.push({ keyframes: keyframes, timing: timing });
+    return { cancel: function () { } };
+  };
 
   CP.ui.archive = CP.demoArchive();
   CP.ui.go('home');
+  calls.length = 0;
 
-  // ① 真正换页 → 应有内联动画
+  // ① 真正换页 → 应调用 animate
   CP.ui.go('result');
-  ok(view.style.animation && view.style.animation.indexOf('fade-up') >= 0,
-    '换页后 #view 应带上 fade-up 内联动画，实际 ' + JSON.stringify(view.style.animation));
+  eq(calls.length, 1, '换页应触发一次入场动画，实际 ' + calls.length + ' 次');
+  ok(calls[0].keyframes && calls[0].keyframes.length === 2, '应传两个关键帧');
+  eq(calls[0].keyframes[0].opacity, 0, '起始帧应从透明开始');
+  eq(calls[0].keyframes[1].opacity, 1, '结束帧应完全不透明');
+  ok(calls[0].timing && calls[0].timing.duration > 0, '应带时长');
 
-  // ② 动画播完 → 应清掉内联值，不常驻压着样式表
-  fireEnd();
-  eq(view.style.animation, '', '动画结束后应清掉内联 animation');
-
-  // ③ 原地重渲染 → 不应触发。
+  // ② 原地重渲染 → 不应触发。
   //    决策页改岗位偏好会调 rerender()，而它调 go('decision')——此时已在决策页，
   //    keepScroll 保持真值，正是"原地重渲染"路径。
   CP.ui.go('decision');
-  fireEnd();
-  eq(view.style.animation, '', '准备阶段应先清干净');
-
+  calls.length = 0;
   var chip = q('[data-pref]')[0];
   ok(chip, '决策页应能找到岗位偏好按钮');
   chip.click();
   eq(CP.ui.route, 'decision', '点偏好按钮不应离开决策页');
-  eq(view.style.animation, '', '原地重渲染不应触发换页动画（否则点一下整页闪一次）');
+  eq(calls.length, 0, '原地重渲染不应触发换页动画（否则点一下整页闪一次）');
+
+  // ③ WAAPI 不碰 inline style，换页不应留下内联 animation
+  CP.ui.go('action');
+  eq(view.style.animation, '', '换页不应残留内联 animation');
+
+  if (realAnimate === undefined) delete view.animate; else view.animate = realAnimate;
 });
 
-test('reduced-motion 由 JS 兜底（内联样式优先级高于媒体查询）', function () {
-  // 样式表里 `@media (prefers-reduced-motion: reduce){ .wrap{animation:none} }`
-  // 拦不住内联 animation，所以产品代码必须在 JS 里判断。
-  // 这里断言这个判断存在且可被调用——删掉它会让无障碍选项失效，而纯 CSS 测不出来。
+test('没有 Element.animate 时退回类触发（老浏览器兜底）', function () {
+  // WAAPI 在 Safari 13.1 及更早版本上不可用。兜底必须能跑，
+  // 否则那些浏览器连首屏之后的换页动画都没有。
+  var view = byId('view');
+  var realAnimate = view.animate;
+  view.animate = undefined;                 // 模拟老浏览器
+
+  CP.ui.archive = CP.demoArchive();
+  CP.ui.go('home');
+  view.classList.remove('is-entering');
+  CP.ui.go('riasec');                       // 走兜底路径：挂 .is-entering 类
+
+  ok(view.classList.contains('is-entering'),
+    '没有 WAAPI 时应挂 is-entering 类作为兜底');
+  // 收尾：模拟动画结束，类应被摘掉
+  (view.listeners.animationend || []).slice().forEach(function (f) { f({ type: 'animationend' }); });
+  ok(!view.classList.contains('is-entering'), '动画结束后应摘掉 is-entering 类');
+
+  if (realAnimate === undefined) delete view.animate; else view.animate = realAnimate;
+});
+
+test('reduced-motion 由 JS 兜底（WAAPI 不受媒体查询约束）', function () {
+  // WAAPI 不受 `@media (prefers-reduced-motion: reduce)` 约束，
+  // 必须在 JS 里判断。删掉它会让无障碍选项失效，而纯 CSS 断言测不出来。
   eq(typeof CP.ui.motionReduced, 'function', 'CP.ui.motionReduced 应存在');
   eq(typeof CP.ui.motionReduced(), 'boolean', 'motionReduced 应返回布尔值');
 
@@ -1807,6 +1837,7 @@ test('reduced-motion 由 JS 兜底（内联样式优先级高于媒体查询）'
     require('path').resolve(ROOT, '界面', '应用.js'), 'utf8');
   ok(src.indexOf('CP.ui.motionReduced()') >= 0, '换页动画应经过 motionReduced 判断');
 });
+
 
 test('能力清单页的计数不带分母（回归：曾经显示 21/48）', function () {
   // 这是同一个错误的**第二处**：首页进度块与侧边栏改过之后，
