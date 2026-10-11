@@ -291,6 +291,7 @@ PDF 里的中文是字形编号 + ToUnicode 映射，直接 grep 字节流搜不
 | 窄屏图表不能靠缩放 | 手机上图表文字读不了 | 560px 宽的图缩到 320px，11px 字变约 1.5mm。窄屏改用 `CP.chartGapsCompact` 换排版而非缩放 |
 | 弱断言会骗过自己 | "命中测试通过"但实际点不到 | `elementFromPoint` 与 `el.click()` 都不反映触摸时的实时位置与 pointer-events。关键交互必须用 CDP 真实触摸验证，并断言"操作后的状态"而不只是"能命中" |
 | 异步收尾在无头环境下不可靠 | 诊断工具输出为空 | `--virtual-time-budget` 下 `setTimeout`/`requestAnimationFrame` 不保证跑完。诊断探针改为每个阶段**同步**写入 `#diag` |
+| 组合选择器会压过单一类 | 活动标签"白字 + 透明底"整条隐形 | `.result-tabs .btn{background:transparent}`（2 个类）压过了 `.btn-primary{background:var(--brand)}`（1 个类），而 `color:#fff` 没被覆盖。去掉背景时用 `:not(.btn-primary)`——`:not()` 会计入参数的特异性，仍能与它平权。**这类 bug 用 getComputedStyle 才测得出来**，已加进浏览器诊断 |
 | 打印视图必须自带设计令牌 | 导出 PDF 里图表全黑、色带消失 | 图表用 `fill="var(--brand)"` 取色，而打印视图是**独立文档**，不继承 `样式/工作台.css` 的 `:root`。`renderPrintView` 必须重新声明色板，并开 `print-color-adjust: exact` |
 | 假 DOM 要按真实 HTML 建 | 改 HTML 后测试大面积假失败 | `buildDom()` 直接解析 `工作台.html` 的 `<body>` |
 | 可选 API 缺失不能拖垮启动 | 保存/导入/重置全部失效 | `bindGlobal()` 里 `document.addEventListener`、`matchMedia`、`window.addEventListener` 都做了能力检测 |

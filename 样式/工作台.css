@@ -688,7 +688,13 @@ label.field > .hint { display: block; font-size: 11.5px; color: var(--ink-3); ma
   box-shadow: var(--shadow);
   margin-bottom: 16px;
 }
-.result-tabs .btn { border: 0; background: transparent; border-radius: 999px; }
+.result-tabs .btn { border: 0; border-radius: 999px; }
+/* 只给"非活动"标签去掉背景。
+   不能写成 `.result-tabs .btn { background: transparent }`——那是两个类（0,2,0），
+   会压过 `.btn-primary`（0,1,0），把活动标签的背景打成透明；
+   而 `.btn-primary` 的 `color:#fff` 没被覆盖，于是"白字 + 透明底"完全隐形。
+   用 :not(.btn-primary) 后选择器仍含 .btn-primary，能与它平权、靠顺序取胜。 */
+.result-tabs .btn:not(.btn-primary) { background: transparent; }
 .result-tabs .btn:not(.btn-primary):hover { background: var(--surface-2); }
 .result-tabs .btn-primary { box-shadow: 0 2px 8px rgba(15, 118, 110, .28); }
 
