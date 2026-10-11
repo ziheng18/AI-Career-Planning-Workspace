@@ -373,10 +373,24 @@
         ? checklistItemsFresh(FRESH_CHECKLIST, FRESH_GRADES)
         : checklistItems(SENIOR_CHECKLIST, SENIOR_GRADES);
     },
-    /** 维度内各项权重（用于加权计分） */
-    weightOf: function (itemId) {
-      for (var i = 0; i < CP.BANK_ABILITY.items.length; i++) {
-        if (CP.BANK_ABILITY.items[i].id === itemId) return CP.BANK_ABILITY.items[i].weight;
+    /**
+     * 维度内各项权重。
+     *
+     * ★ 必须传 profile：大一的清单与大三的清单**共用同一批 item id**
+     *   （math1…math6 等），只有题目文本与权重不同。`items` 是两套的合并数组，
+     *   不带年级地按 id 查找会命中排在前面那一套——拿到另一套的权重。
+     *   传了 profile 就只在"该年级实际作答的那批"里查，与 scoreChecklist 一致。
+     *
+     *   产品计分**不依赖这个函数**：scoreChecklist 直接用 activeItems() 的
+     *   it.weight，本身就按年级选表。这里修的是这个查询接口自身的正确性。
+     *
+     * @param {string} itemId
+     * @param {Object} [profile] 建议总是传；缺省时退回全表查找（可能命中另一套）
+     */
+    weightOf: function (itemId, profile) {
+      var pool = profile ? CP.activeItems(CP.BANK_ABILITY, profile) : CP.BANK_ABILITY.items;
+      for (var i = 0; i < pool.length; i++) {
+        if (pool[i].id === itemId) return pool[i].weight;
       }
       return 1;
     }

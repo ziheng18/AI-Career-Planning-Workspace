@@ -392,6 +392,46 @@ module.exports = function () {
     t.eq(days > 0, true, '截止日应在起始日之后');
   });
 
+  t.test('能力清单两套口径共用 item id，weightOf 必须按年级查', function () {
+    // 大一的清单与大三的清单共用同一批 id（math1…math6），
+    // 只有题目文本与权重不同；而 bank.items 是两套的合并数组。
+    // weightOf 若不带年级地按 id 查找，会命中排在前面那套——拿到另一套的权重。
+    var freshW = CP.ABILITY_WEIGHTS.fresh;
+    var seniorW = CP.ABILITY_WEIGHTS.senior;
+    t.ok(freshW.join() !== seniorW.join(), '两套权重表应当不同，否则这条检查没有意义');
+    t.eq(freshW.reduce(function (a, b) { return a + b; }, 0), 100, '大一权重合计应为 100');
+    t.eq(seniorW.reduce(function (a, b) { return a + b; }, 0), 100, '高年级权重合计应为 100');
+
+    t.eq(CP.BANK_ABILITY.weightOf('math1', { grade: '大一' }), freshW[0], '大一的 math1 应取大一权重表');
+    t.eq(CP.BANK_ABILITY.weightOf('math1', { grade: '大三' }), seniorW[0], '大三的 math1 应取高年级权重表');
+
+    // 关键一致性：weightOf 必须与计分实际使用的 it.weight 完全相同。
+    // 计分走 activeItems()，weightOf 若与之不符，说明查询口径已经分叉。
+    ['大一', '大三', '研一'].forEach(function (g) {
+      var prof = { grade: g };
+      CP.activeItems(CP.BANK_ABILITY, prof).forEach(function (it) {
+        t.eq(CP.BANK_ABILITY.weightOf(it.id, prof), it.weight,
+          g + ' 的 ' + it.id + '：weightOf 与 activeItems 的 weight 必须一致');
+      });
+    });
+
+    // 每维权重合计 100 且非递减（由易到难），首项不能太小
+    [['大一', 'fresh'], ['大三', 'senior']].forEach(function (p) {
+      var prof = { grade: p[0] };
+      var items = CP.activeItems(CP.BANK_ABILITY, prof);
+      var dims = {};
+      items.forEach(function (it) { (dims[it.dim] = dims[it.dim] || []).push(it); });
+      Object.keys(dims).forEach(function (d) {
+        var w = dims[d].map(function (it) { return it.weight; });
+        t.eq(w.reduce(function (a, b) { return a + b; }, 0), 100, p[0] + ' 的 ' + d + ' 权重合计应为 100');
+        for (var i = 1; i < w.length; i++) {
+          t.ok(w[i] >= w[i - 1], p[0] + ' 的 ' + d + ' 权重应非递减（由易到难）');
+        }
+        t.ok(w[0] >= 10, p[0] + ' 的 ' + d + ' 首项权重应 ≥10，保证诚实作答不会得 0 分');
+      });
+    });
+  });
+
   /* ============================================================
    * v1.0.0 → v1.1.0 迁移：能力部分从 1-4 档 Likert 改为勾选式清单
    * ============================================================ */
