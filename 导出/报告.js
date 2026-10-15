@@ -389,7 +389,7 @@
     table(['项目', '内容'], [
       ['年级', a.profile.grade || '—'],
       ['专业方向', a.profile.track || '—'],
-      ['GPA 档位', a.profile.gpaBand || '（大一通常尚未评定）'],
+      ['GPA 档位', a.profile.gpaBand || '—'],
       ['是否接受读研', a.profile.acceptPostgrad || '—'],
       ['每周可投入学习时长', (a.decision.hoursPerWeek == null ? '—' : a.decision.hoursPerWeek) + ' 小时'],
       ['期望工作城市', (a.decision.targetCities || []).join('、') || '未指定']
@@ -1038,7 +1038,7 @@
       + tbl(['项目', '内容'], [
         ['年级', esc(a.profile.grade || '—')],
         ['专业方向', esc(a.profile.track || '—')],
-        ['GPA 档位', esc(a.profile.gpaBand || '（大一通常尚未评定）')],
+        ['GPA 档位', esc(a.profile.gpaBand || '—')],
         ['是否接受读研', esc(a.profile.acceptPostgrad || '—')],
         ['每周可投入学习时长', esc((a.decision.hoursPerWeek == null ? '—' : a.decision.hoursPerWeek) + ' 小时')],
         ['期望工作城市', esc((a.decision.targetCities || []).join('、') || '未指定')]

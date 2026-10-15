@@ -207,13 +207,20 @@ module.exports = function () {
     t.ok(s.ability.dims.self.score > s.ability.dims.deploy.score, '勾得多的维度应更高');
   });
 
-  t.test('大一档案的完整性校验按大一版清单，且不再要求 GPA', function () {
+  t.test('大一档案的完整性校验按大一版清单，且 GPA 不参与校验', function () {
     var a = freshArchive();
     a.decision.jobPref = { 'algo-research': 'like' };
     a.decision.criteriaOrder = CP.CRITERIA.map(function (c) { return c.id; });
     var missing = CP.validateArchive(a);
     t.eq(missing.length, 0, '大一档案应通过校验，实际：' + JSON.stringify(missing));
-    t.eq(a.profile.gpaBand, '', '大一不应有 GPA 档位');
+    // GPA 档位与年级无关，也不参与适配度计算——留空、或填任何档位，校验都应通过
+    t.eq(a.profile.gpaBand, '', '空档案的 GPA 档位默认应为空');
+    ['尚未评定', '不便填写', '前 10%'].forEach(function (v) {
+      a.profile.gpaBand = v;
+      t.eq(CP.validateArchive(a).length, 0, 'GPA 填「' + v + '」不应影响校验');
+    });
+    // 大一示例档案用的是"尚未评定"——大一通常还没出排名
+    t.eq(CP.demoArchiveFresh().profile.gpaBand, '尚未评定', '大一示例的 GPA 档位应为「尚未评定」');
   });
 
   t.test('大一档案：岗位适配度以兴趣为主导，且算法类岗位排前', function () {

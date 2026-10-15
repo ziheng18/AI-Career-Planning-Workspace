@@ -981,25 +981,83 @@ test('基本信息表单可写入，年级变化会计时切换能力口径', fu
   eq(CP.ui.archive.profile.acceptPostgrad, '接受');
 });
 
-test('大一时 GPA 档位不可填，且说明会解释口径变化', function () {
+test('GPA 档位对所有年级都是同一组选项，且不因年级被清空', function () {
+  // 这条替换掉之前"大一时 GPA 不可填"的断言。
+  // 旧做法是：大一显示一个禁用的文本框、切到大一就把 gpaBand 清空。
+  // 那样把"没评定"表达成了"这一项对你不适用"，还把档位与年级硬绑在一起。
+  // 现在统一成一组选项，"尚未评定"和"不便填写"各是一个明确的答案。
+  var EXPECTED = ['前 10%', '10-30%', '30-60%', '后 40%', '尚未评定', '不便填写'];
+
+  ['大一', '大三', '研一'].forEach(function (g) {
+    CP.ui.archive.profile.grade = g;
+    CP.ui.archive.profile.gpaBand = '10-30%';
+    CP.ui.route = 'profile';
+    byId('view').innerHTML = CP.pages.profile();
+    CP.bindPage('profile');
+
+    var gpa = byId('gpaBand');
+    ok(gpa, g + '：未生成 GPA 字段');
+    eq(gpa.tagName, 'SELECT', g + '：GPA 字段应是下拉框，实际 ' + gpa.tagName);
+    ok(!gpa.disabled, g + '：GPA 下拉框不应被禁用');
+
+    var opts = q('#gpaBand option').map(function (o) { return o.getAttribute('value'); })
+      .filter(function (v) { return v !== ''; });   // 去掉"请选择"占位
+    eq(opts.join('|'), EXPECTED.join('|'), g + '：选项应与统一档位一致');
+
+    // 已选中的值应保留（年级变化不该丢掉已填的档位）
+    eq(CP.ui.archive.profile.gpaBand, '10-30%', g + '：已填的 GPA 档位应保留');
+  });
+
+  // 切年级时 GPA 不应被清空
+  CP.ui.archive.profile.gpaBand = '前 10%';
   CP.ui.route = 'profile';
   byId('view').innerHTML = CP.pages.profile();
   CP.bindPage('profile');
-  byId('grade').value = '大一'; byId('grade').onchange();
+  byId('grade').value = '大一';
+  byId('grade').onchange();
   eq(CP.ui.archive.profile.grade, '大一');
-  eq(CP.ui.archive.profile.gpaBand, '', '切到大一后 GPA 档位应被清空');
-  var html = byId('view').innerHTML;
-  var gpa = byId('gpaBand');
-  ok(gpa, '未生成 GPA 字段');
-  eq(gpa.tagName, 'INPUT', 'GPA 字段应为 input');
-  eq(gpa.getAttribute('disabled') !== null, true, '大一的 GPA 输入应带 disabled 属性');
-  eq(gpa.disabled, true, '大一的 GPA 档位应禁用');
-  has(html, '不适用（大一通常尚未评定）', '大一的 GPA 项应显示为不适用');
-  ok(html.indexOf('大一版行为清单') < 0, '基本信息页不应再解释口径细节');
+  eq(CP.ui.archive.profile.gpaBand, '前 10%', '切到大一不应清空 GPA 档位');
 
-  // 切回大三应恢复可填
-  byId('grade').value = '大三'; byId('grade').onchange();
-  eq(byId('gpaBand').disabled, false, '大三应恢复可填');
+  // 两个"明确答案"必须能被写入
+  ['尚未评定', '不便填写'].forEach(function (v) {
+    byId('view').innerHTML = CP.pages.profile();
+    CP.bindPage('profile');
+    var el = byId('gpaBand');
+    el.value = v;
+    el.onchange();
+    eq(CP.ui.archive.profile.gpaBand, v, '应能选择「' + v + '」');
+  });
+});
+
+test('GPA 档位取值与数据字典的记载一致', function () {
+  // 数据字典是"唯一权威口径说明"，它列的取值必须与界面选项逐字一致。
+  // 这类"文档说 A、代码是 B"的不一致最容易复发，所以直接对文本做核对。
+  var dict = fs.readFileSync(path.join(ROOT, '文档', '数据字典.md'), 'utf8');
+  var uiOptions = ['前 10%', '10-30%', '30-60%', '后 40%', '尚未评定', '不便填写'];
+  uiOptions.forEach(function (v) {
+    ok(dict.indexOf(v) >= 0, '数据字典缺少 GPA 取值：' + v);
+  });
+  // 界面选项的顺序也要与文档一致（文档按档位→尚未评定→不便填写排列）
+  CP.ui.archive.profile.grade = '大一';
+  CP.ui.route = 'profile';
+  byId('view').innerHTML = CP.pages.profile();
+  CP.bindPage('profile');
+  var opts = q('#gpaBand option').map(function (o) { return o.getAttribute('value'); })
+    .filter(function (v) { return v !== ''; });
+  eq(opts.join('|'), uiOptions.join('|'), '界面选项顺序应与数据字典一致');
+});
+
+test('导入档案时不再按年级丢弃 GPA 档位', function () {
+  // 早先 migrate 里有一句 `if (grade === '大一') gpaBand = ''`，
+  // 等于在导入时静默丢数据。这条守着它不被加回来。
+  // （导入入口是 CP.migrate，见上面"示例档案可被导入"那条测试。）
+  var raw = JSON.parse(JSON.stringify(CP.createBlankArchive()));
+  raw.profile.grade = '大一';
+  raw.profile.track = '人工智能';
+  raw.profile.gpaBand = '尚未评定';
+  raw.profile.acceptPostgrad = '未定';
+  var got = CP.migrate(raw);
+  eq(got.profile.gpaBand, '尚未评定', '导入时不应丢掉 GPA 档位');
 });
 
 test('基本信息页不再重复解释设计口径（只保留必要的操作提示）', function () {

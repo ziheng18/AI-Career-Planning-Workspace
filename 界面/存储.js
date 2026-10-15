@@ -175,7 +175,9 @@
     Object.keys(blank.profile).forEach(function (k) {
       if (obj.profile && obj.profile[k] !== undefined) a.profile[k] = obj.profile[k];
     });
-    if (a.profile.grade === '大一') a.profile.gpaBand = '';   // 大一没有 GPA 档位
+    // 注意：这里**不再**因年级而清空 gpaBand。
+    // GPA 档位对所有年级都适用（含"尚未评定""不便填写"两个明确选项），
+    // 与年级无关；早先按年级清空等于在导入时静默丢数据。
 
     // answers
     Object.keys(blank.answers).forEach(function (k) {
@@ -359,7 +361,9 @@
     var a = CP.createBlankArchive();
     a.profile.grade = '大一';
     a.profile.track = '人工智能';
-    a.profile.gpaBand = '';
+    // 大一的 GPA 档位用"尚未评定"——这一项对所有年级都开放，
+    // 大一通常还没出排名，这正是"尚未评定"这个选项要表达的。
+    a.profile.gpaBand = '尚未评定';
     a.profile.acceptPostgrad = '未定';
 
     function put(blockId, fn) {
