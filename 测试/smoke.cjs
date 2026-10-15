@@ -1241,7 +1241,13 @@ test('滑动动画带"先隐藏再播"的机制，防止终点闪现', function 
   // 缺了它不会报错、只会闪，属于最容易在重构里丢掉的一类代码。
   var src = fs.readFileSync(path.join(ROOT, '界面', '应用.js'), 'utf8');
   has(src, 'flipSlide: function', '缺少 flipSlide（滑动动画的统一入口）');
+  has(src, 'flipSlideMany: function', '缺少 flipSlideMany（批量滑动，避免逐张读写交错）');
   has(src, "el.style.opacity = '0'", 'flipSlide 必须先把元素设成不可见，否则会在终点闪现');
+  has(src, "style.opacity = '0'", 'flipSlideMany 同样要先隐藏，否则会在终点闪现');
+  // 时长共用一个常量，别写死在多处（排序与看板要同步）
+  has(src, 'var SLIDE_MS = 240;', '滑动时长应共用一个常量 SLIDE_MS');
+  eq((src.match(/duration: SLIDE_MS/g) || []).length, 2,
+    '两处滑动动画（单个 + 批量）都应使用 SLIDE_MS');
   // 必须退两帧：rAF 回调在绘制之前执行，退一帧不够
   var body = src.slice(src.indexOf('flipSlide: function'));
   body = body.slice(0, body.indexOf('\n    },'));

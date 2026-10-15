@@ -17,6 +17,11 @@
     { id: 'export', num: '8', label: '导出报告' }
   ];
 
+  /* 滑动时长。240ms 是权衡后的值：
+     300ms 在连续操作时会感觉"追不上手"；太短（<180ms）又看不出滑动、等于瞬移。
+     排序与看板共用这一个值，免得两处节奏不一致。 */
+  var SLIDE_MS = 240;
+
   CP.ui = {
     archive: null,
     route: 'home',
@@ -299,6 +304,79 @@
     },
 
     /**
+     * 让一批元素各自"从旧位置滑到新位置"，且全程不闪。
+     *
+     * ★ 为什么要成批处理，而不是循环调用 flipSlide：
+     *   flipSlide 内部是"读 getBoundingClientRect → 写内联 opacity"。
+     *   在循环里逐个调用就是**交错读写**——浏览器每次遇到写之后的读，
+     *   都必须先把前面的写全部落实（强制重排）。
+     *   实测：一次移动 10 张卡触发 10 次布局，40 张卡就是 40 次。
+     *   这里改成"先把所有位置读完，再统一写"，整批只强制一次布局。
+     *
+     * @param {Array} jobs  [{ el, dx, dy }]
+     */
+    flipSlideMany: function (jobs) {
+      var valid = [];
+      var hidden = [];
+      var showAll = function () {
+        for (var k = 0; k < hidden.length; k++) hidden[k].style.opacity = '';
+        hidden.length = 0;
+      };
+
+      // ① 先把所有位置读出来。此时还没写过任何样式，只有一次布局。
+      for (var i = 0; i < jobs.length; i++) {
+        var el = jobs[i].el;
+        var dx = jobs[i].dx;
+        var dy = jobs[i].dy;
+        if (!el || (!dx && !dy)) continue;                  // 没动的元素直接跳过
+        var r = el.getBoundingClientRect();                 // 读
+        valid.push({ el: el, dx: dx - r.left, dy: dy - r.top });
+      }
+      if (!valid.length) return;
+
+      var reduced = CP.ui.motionReduced && CP.ui.motionReduced();
+      if (reduced || typeof valid[0].el.animate !== 'function') return;
+
+      // ② 再统一写：一次布局都不用重算（只改 opacity）
+      for (var j = 0; j < valid.length; j++) {
+        valid[j].el.style.opacity = '0';
+        hidden.push(valid[j].el);
+      }
+
+      // ③ 退两帧后恢复并播动画（与 flipSlide 同一个理由：要等动画已生效的那次绘制）
+      var cleanup = setTimeout(function () {
+        // 兜底：动画没触发也要把元素恢复出来，不能永久隐藏
+        showAll();
+      }, 1000);
+
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          showAll();
+          var pending = 0;
+          var onEnd = function () {
+            pending -= 1;
+            if (pending <= 0) { try { clearTimeout(cleanup); } catch (e) { } }
+          };
+          for (var k = 0; k < valid.length; k++) {
+            var job = valid[k];
+            // 只有一个方向有位移时走单轴：纵向列表（如排序行）不必动 x，
+            // 动画本身也更省（浏览器可以只处理一个轴）。
+            var from = job.dx
+              ? 'translate(' + job.dx + 'px,' + job.dy + 'px)'
+              : 'translateY(' + job.dy + 'px)';
+            var a = job.el.animate([
+              { transform: from },
+              { transform: 'translate(0,0)' }
+            ], { duration: SLIDE_MS, easing: 'cubic-bezier(.22,.61,.36,1)' });
+            pending += 1;
+            try { a.addEventListener('finish', onEnd); } catch (e) { }
+          }
+          if (!pending) { try { clearTimeout(cleanup); } catch (e) { } }
+        });
+      });
+    },
+
+    /**
      * 播放"元素从旧位置滑到新位置，且全程不闪"的动画。
      *
      * ★ 为什么要把元素先隐藏到动画真正开始：
@@ -339,7 +417,7 @@
           var a = el.animate([
             { transform: 'translate(' + dx + 'px,' + dy + 'px)' },
             { transform: 'translate(0,0)' }
-          ], { duration: 300, easing: 'cubic-bezier(.22,.61,.36,1)' });
+          ], { duration: SLIDE_MS, easing: 'cubic-bezier(.22,.61,.36,1)' });
           a.addEventListener('finish', function () {
             try { clearTimeout(fallback); } catch (e) { }
             finish();

@@ -332,17 +332,17 @@
     function sortFlipPlay(first) {
       if (!first) return;
       if (CP.ui.motionReduced && CP.ui.motionReduced()) return;
+      // 只收集（不读布局、不写样式），交给 flipSlideMany 统一处理。
+      // 这里最多 6 行，逐个动画也不明显，但保持与看板同一套机制，
+      // 免得两处各写一套、以后只有一处被改对。
+      var jobs = [];
       document.querySelectorAll('.sortrow[data-sortcid]').forEach(function (el) {
         var id = el.getAttribute('data-sortcid');
         if (!(id in first)) return;
-        var dy = first[id] - el.getBoundingClientRect().top;
-        if (!dy) return;                       // 没动的行不播
-        if (typeof el.animate !== 'function') return;
-        el.animate([
-          { transform: 'translateY(' + dy + 'px)' },
-          { transform: 'translateY(0)' }
-        ], { duration: 240, easing: 'cubic-bezier(.22,.61,.36,1)' });
+        // dy 先用"占位值"传旧 top，由 flipSlideMany 读到新位置后求差
+        jobs.push({ el: el, dx: 0, dy: first[id] });
       });
+      CP.ui.flipSlideMany(jobs);
     }
 
     document.querySelectorAll('[data-move]').forEach(function (btn) {
@@ -637,7 +637,7 @@
       //   这两种情况下那些卡的 DOM 顺序没变、只是视觉位置变了，
       //   若只处理被移动的那一张，它们就会生硬地跳过去。
       //
-      //   注意两张卡之间不会相互影响：位置没变的卡位移是 0，`flipSlide` 会直接跳过。
+      //   位置没变的卡位移是 0，批处理里会直接跳过。
       var cols = [];
       var targetCol = el.closest('.kan-col');
       if (targetCol) cols.push(targetCol);
@@ -652,18 +652,19 @@
         if (srcCol) cols.push(srcCol);
       }
 
+      // 这里只**收集**（不读布局、不写样式），统一交给 flipSlideMany。
+      // 逐个循环调用 flipSlide 是"读一次、写一次"交错，会让每张卡都强制一次重排；
+      // 实测 40 张卡要 40 次布局。批处理只强制一次。
+      var jobs = [];
       cols.forEach(function (col) {
         col.querySelectorAll('.kan-item[data-actid]').forEach(function (card) {
           if (card === el) return;                // 被移动的那张已经处理过
           var old = first[card.getAttribute('data-actid')];
           if (!old) return;
-          var now = card.getBoundingClientRect();
-          var ox = old.left - now.left;
-          var oy = old.top - now.top;
-          if (!ox && !oy) return;                 // 没被挤动/没被抽走痕迹的卡不播
-          CP.ui.flipSlide(card, ox, oy);
+          jobs.push({ el: card, dx: old.left, dy: old.top });
         });
       });
+      CP.ui.flipSlideMany(jobs);
     }
 
     document.querySelectorAll('[data-mv]').forEach(function (b) {

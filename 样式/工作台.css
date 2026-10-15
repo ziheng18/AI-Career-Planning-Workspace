@@ -1017,14 +1017,15 @@ details.derive[open] > summary { font-weight: 600; }
      进行中 → 品牌青绿；已完成 → 成功绿，并额外轻轻放大一下表示"完成"。
    只在真的换列时播（点当前列的按钮不播）。
    不用 color-mix()：用 box-shadow 直接带颜色的写法兼容面更广，
-   且不会因为不支持而静默失效。 */
-.kan-item.kan-land { animation: kan-land .58s var(--ease); }
+   且不会因为不支持而静默失效。
+   时长克制一些（0.42s / 0.5s）：它只是"落位提示"，连续操作时拖太久会显得迟钝。 */
+.kan-item.kan-land { animation: kan-land .42s var(--ease); }
 @keyframes kan-land {
   0%   { border-color: var(--brand); box-shadow: 0 0 0 0 var(--brand); }
   35%  { border-color: var(--brand); box-shadow: 0 0 0 5px rgba(15, 118, 110, .22); }
   100% { border-color: var(--line);   box-shadow: 0 0 0 0 rgba(15, 118, 110, 0); }
 }
-.kan-item.kan-land-done { animation: kan-land-done .7s var(--ease); }
+.kan-item.kan-land-done { animation: kan-land-done .5s var(--ease); }
 @keyframes kan-land-done {
   0%   { border-color: var(--ok); box-shadow: 0 0 0 0 var(--ok); transform: scale(1); }
   30%  { border-color: var(--ok); box-shadow: 0 0 0 6px rgba(16, 185, 129, .22); transform: scale(1.025); }
