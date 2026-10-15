@@ -20,15 +20,27 @@
       // 勾选式清单的门槛（每维至少勾 1 项）远小于题目总数，所以它的条会比
       // 达标判据先走完——这是有意的：门槛达成即算做完，实际勾了多少如实显示。
       var frac = p.total ? Math.min(1, p.done / p.total) : 0;
-      return '<div class="progress-row" style="margin-bottom:8px">' +
-        '<span style="flex:0 0 148px;font-size:12.5px;color:var(--ink-2)">' + esc(p.label) +
+      return '<div class="progress-row">' +
+        '<span class="pv-label">' + esc(p.label) +
         (p.reached ? ' <span style="color:var(--ok)">✓</span>' : '') + '</span>' +
         '<div class="progress"><i style="width:' + (frac * 100).toFixed(0) + '%"></i></div>' +
-        '<b style="flex:0 0 52px;text-align:right;font-size:11.5px">' + esc(p.countHint) + '</b></div>';
+        '<b class="pv-count">' + esc(p.countHint) + '</b></div>';
     }).join('');
+
+    // 总进度也做成一行（有标签、有数值），而不是一条孤零零的加粗进度条。
+    //
+    // 之前的问题：条与上一行的间距是"上一行 margin-bottom 8px"加"本条 margin-top 6px"
+    // 叠出来的 14px，比行间距大一截，看起来像脱离了上面的列表；而且没有文字，
+    // 只有右上角的百分比标签，不知道这条代表什么。
+    // 现在用和上面几行完全相同的结构与间距，标签写「总完成进度」。
+    var totalPct = Math.round(pr.pct * 100);
     return '<div class="card"><div class="card-head"><h3>完成进度</h3>' +
-      '<span class="tag tag-brand">' + Math.round(pr.pct * 100) + '%</span></div>' + rows +
-      '<div class="progress" style="height:10px;margin-top:6px"><i style="width:' + (pr.pct * 100).toFixed(0) + '%"></i></div>' +
+      '<span class="tag tag-brand">' + totalPct + '%</span></div>' +
+      '<div class="progress-parts">' + rows + '</div>' +
+      '<div class="progress-row progress-total">' +
+      '<span class="pv-label">总完成进度</span>' +
+      '<div class="progress progress-lg"><i style="width:' + (pr.pct * 100).toFixed(0) + '%"></i></div>' +
+      '<b class="pv-count">' + totalPct + '%</b></div>' +
       '</div>';
   }
 
@@ -422,10 +434,13 @@
 
     function col(status, title) {
       var list = actions.filter(function (x) { return x.status === status; });
-      return '<div class="kan-col"><h4><span>' + esc(title) + '</span><span>' + list.length + '</span></h4>'
+      // data-col 与 data-actid 是动画定位标记：
+      //   列名用来判断"卡片进的是哪一列"，据此给它对应的状态色反馈；
+      //   卡片 id 用来在整页重渲染后找回同一张卡（见 bindPage 里的 actMove）。
+      return '<div class="kan-col" data-col="' + status + '"><h4><span>' + esc(title) + '</span><span>' + list.length + '</span></h4>'
         + (list.length ? list.map(function (x) {
           var i = actions.indexOf(x);
-          return '<div class="kan-item"><div>' + esc(x.title) + '</div>'
+          return '<div class="kan-item" data-actid="' + esc(x.id) + '"><div>' + esc(x.title) + '</div>'
             + '<div class="due">' + esc(x.due || '未设截止') + (x.fromGap ? ' · 来自差距：' + esc(CP.abilityLabel(x.fromGap)) : '') + '</div>'
             + (x.note ? '<div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">' + esc(x.note) + '</div>' : '')
             + '<div class="ops">'
@@ -570,11 +585,65 @@
       CP.ui.go('action');
     };
 
+    // 看板状态流转的动画。
+    //
+    // 与排序那边同样是"整页重渲染"，所以同用 FLIP：量旧位置 → 重渲染 →
+    // 量新位置 → 从旧位置滑过去。区别是这里卡片还会**跨列**，位移是二维的，
+    // 所以量的是 (left, top) 两个方向。
+    //
+    // 光"滑过去"还不够：三列卡片长得一样，用户点完不容易看出卡去了哪一列。
+    // 所以落位后再给它一次状态色反馈——边框与光晕用目标列的颜色
+    // （进行中=品牌青绿，已完成=成功绿），"已完成"额外加一点庆祝感。
+    function kanPositions() {
+      var map = {};
+      document.querySelectorAll('.kan-item[data-actid]').forEach(function (el) {
+        var r = el.getBoundingClientRect();
+        map[el.getAttribute('data-actid')] = { left: r.left, top: r.top };
+      });
+      return map;
+    }
+    function kanFlipPlay(first, actId, to) {
+      var el = document.querySelector('.kan-item[data-actid="' + actId + '"]');
+      if (!el || !first) return;
+      var from = first[actId];
+      var reduced = CP.ui.motionReduced && CP.ui.motionReduced();
+      if (from && !reduced && typeof el.animate === 'function') {
+        var r = el.getBoundingClientRect();
+        var dx = from.left - r.left;
+        var dy = from.top - r.top;
+        if (dx || dy) {
+          el.animate([
+            { transform: 'translate(' + dx + 'px,' + dy + 'px)' },
+            { transform: 'translate(0,0)' }
+          ], { duration: 300, easing: 'cubic-bezier(.22,.61,.36,1)' });
+        }
+      }
+      // 落位反馈：只在真的换了列时才播（点当前列的按钮不该有任何动静）
+      if (!reduced && to) {
+        el.classList.remove('kan-land', 'kan-land-done');
+        void el.offsetWidth;
+        el.classList.add(to === 'done' ? 'kan-land-done' : 'kan-land');
+        el.addEventListener('animationend', function onLand() {
+          el.classList.remove('kan-land', 'kan-land-done');
+          el.removeEventListener('animationend', onLand);
+        });
+      }
+    }
+
     document.querySelectorAll('[data-mv]').forEach(function (b) {
       b.onclick = function () {
         var i = Number(b.getAttribute('data-mv'));
-        a.actions[i].status = b.getAttribute('data-to');
+        var to = b.getAttribute('data-to');
+        var act = a.actions[i];
+        if (!act || act.status === to) return;      // 已在该列，不做无意义的动画
+        var actId = act.id;
+        act.status = to;
         CP.store.save(a);
+
+        var first = kanPositions();
+        // 换页动画与 FLIP 都由 go() 的 keepScroll===false 触发；
+        // afterRender 在 DOM 写好之后执行，此时新位置已经可量。
+        CP.ui.afterRender = function () { kanFlipPlay(first, actId, to); };
         CP.ui.go('action');
       };
     });

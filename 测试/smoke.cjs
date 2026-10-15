@@ -1230,6 +1230,35 @@ test('任务状态可在三列之间流转', function () {
   eq(CP.ui.archive.actions[idx].status, 'done');
 });
 
+test('看板列与卡片都带动画定位标记，且已在该列时不重复渲染', function () {
+  // 滑动动画本身靠真浏览器验证（测试/看板动效诊断.cjs）。
+  // 假 DOM 没有排版，量不到位置，所以这里只测动画成立的两个结构前提：
+  //   ① 列带 data-col、卡片带 data-actid —— 没有它们，换列后找不回同一张卡，
+  //      FLIP 就算不出位移，动画会静默失效；
+  //   ② 点"当前列"的状态按钮不应触发重渲染（否则会做无意义的动画）。
+  CP.ui.go('action');
+  var cols = q('.kan-col[data-col]');
+  eq(cols.length, 3, '三列都应带 data-col，实际 ' + cols.length);
+  ['todo', 'doing', 'done'].forEach(function (s) {
+    ok(q('.kan-col[data-col="' + s + '"]').length === 1, '缺少列 ' + s);
+  });
+
+  var cards = q('.kan-item[data-actid]');
+  eq(cards.length, CP.ui.archive.actions.length,
+    '每张卡片都应带 data-actid（' + cards.length + ' / ' + CP.ui.archive.actions.length + '）');
+
+  // 已在该列 → 不应重渲染
+  var doneIdx = -1;
+  CP.ui.archive.actions.forEach(function (x, i) { if (x.status === 'done') doneIdx = i; });
+  ok(doneIdx >= 0, '示例档案里应有已完成的任务');
+  var rendered = 0;
+  var origRender = CP.ui.render;
+  CP.ui.render = function () { rendered += 1; return origRender.apply(this, arguments); };
+  q1('[data-mv="' + doneIdx + '"][data-to="done"]').click();
+  CP.ui.render = origRender;
+  eq(rendered, 0, '点当前列的状态按钮不应触发重渲染（否则会做无意义的动画）');
+});
+
 test('任务可删除', function () {
   CP.ui.go('action');
   var n = CP.ui.archive.actions.length;
@@ -1944,8 +1973,10 @@ test('完成进度条与右侧数字同源，不出现"条满数字未满"', fun
   CP.ui.archive.profile.grade = '大三';
   CP.fillAbility(CP.ui.archive, 1);       // 门槛刚达成，但只勾了 8/48
   CP.ui.go('home');
-  var rows = q('.progress-row');
-  eq(rows.length, 4, '应有四行进度');
+  // 明细行在 .progress-parts 里；合计行是它的兄弟（.progress-total），不在其中。
+  // 之前这里直接数 .progress-row，加了合计行之后就多了一行。
+  var rows = q('.progress-parts .progress-row');
+  eq(rows.length, 4, '应有四行明细进度');
   var abilityRow = rows.filter(function (r) { return r.textContent.indexOf('能力清单') >= 0; })[0];
   ok(abilityRow, '未找到能力清单那一行');
   var bar = abilityRow.querySelector('.progress > i');
@@ -1956,6 +1987,41 @@ test('完成进度条与右侧数字同源，不出现"条满数字未满"', fun
   ok(abilityRow.textContent.indexOf('/48') < 0,
     '不应出现 /48——分母会让人以为"要做完 48 项"');
   has(abilityRow.textContent, '✓', '达标后应显示勾选标记');
+});
+
+test('合计进度行有文字标签，且不再与明细行多出一段间距', function () {
+  // 用户报过："最后一个总完成进度间隔和前三个大一点，并用文字标明。"
+  // 根因是间距由两处 margin 叠加：明细行 margin-bottom:8px + 合计行 margin-top:6px = 14px，
+  // 而明细行之间只有 8px。修法是行距只在 CSS 里定义一处（.progress-parts 的 gap），
+  // 合计行自己的 margin-top 控制到只比 8px 略大。
+  CP.ui.archive = CP.demoArchive();
+  CP.ui.go('home');
+  var html = byId('view').innerHTML;
+
+  // ① 合计行必须有文字标签
+  has(html, '总完成进度', '合计进度条旁必须有文字说明');
+  var total = q('.progress-total')[0];
+  ok(total, '未找到合计进度行');
+  has(total.textContent, '总完成进度', '合计行应含标签文字');
+  has(total.textContent, '%', '合计行右侧应显示百分比');
+
+  // ② 合计行不能被算进明细行（否则上面那条 .progress-parts 断言会数错）
+  eq(q('.progress-parts .progress-total').length, 0, '合计行不应在 .progress-parts 容器内');
+
+  // ③ 间距不能再靠行内 margin 叠加
+  var inlineMargins = q('.progress-row').filter(function (r) {
+    var s = r.getAttribute('style') || '';
+    return /margin/.test(s);
+  });
+  eq(inlineMargins.length, 0,
+    '进度行的间距应统一由 CSS 的 gap 控制，不要在行内写 margin（会把间距叠成 14px）：'
+    + inlineMargins.map(function (r) { return r.getAttribute('style'); }).join(' | '));
+
+  // ④ 样式表里必须确有 gap 定义，且合计行有独立的 margin-top
+  var css = fs.readFileSync(path.join(ROOT, '样式', '工作台.css'), 'utf8');
+  has(css, '.progress-parts { display: flex; flex-direction: column; gap: 8px; }',
+    '明细行间距应在 .progress-parts 上用 gap 定义');
+  has(css, '.progress-total { margin-top: 10px;', '合计行的间距应独立且略大（10px）');
 });
 
 test('换页动画：换页播、原地重渲染不播', function () {
