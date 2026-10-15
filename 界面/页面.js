@@ -629,24 +629,40 @@
         });
       });
 
-      // ★ 目标列里原有卡片必须避让。
-      //   被移动的卡会**插进**目标列的中间——列序按 actions 数组顺序排，
-      //   它在新列里排第几取决于自己在数组里的下标。插在它后面的那些卡
-      //   整体下移一格：DOM 顺序没变，但视觉位置变了。
-      //   逐个按"自身新旧位置差"补一段滑动，它们才是平滑让位而不是生硬跳过去。
-      //   只处理被移动的那一张不够——用户看到的是整列在避让。
+      // ★ 两列里"位置变了但不该瞬移"的卡片都要补一段滑动。
+      //
+      //   卡片列表按 actions 数组顺序排，所以一张卡换列后：
+      //     · 目标列：它**插进**中间某处 → 插在它后面的卡整体下移一格（避让）
+      //     · 源列：它从中间某处抽走     → 原来在它后面的卡整体上移一格（补位）
+      //   这两种情况下那些卡的 DOM 顺序没变、只是视觉位置变了，
+      //   若只处理被移动的那一张，它们就会生硬地跳过去。
+      //
+      //   注意两张卡之间不会相互影响：位置没变的卡位移是 0，`flipSlide` 会直接跳过。
+      var cols = [];
       var targetCol = el.closest('.kan-col');
-      if (!targetCol) return;
-      document.querySelectorAll('.kan-item[data-actid]').forEach(function (card) {
-        if (card === el) return;                  // 被移动的那张已经处理过
-        if (card.closest('.kan-col') !== targetCol) return;
-        var old = first[card.getAttribute('data-actid')];
-        if (!old) return;
-        var now = card.getBoundingClientRect();
-        var ox = old.left - now.left;
-        var oy = old.top - now.top;
-        if (!ox && !oy) return;                   // 没被挤动的卡不播
-        CP.ui.flipSlide(card, ox, oy);
+      if (targetCol) cols.push(targetCol);
+      // 源列从"移动前的位置"反推：旧位置必然落在原来那一列的范围内
+      if (from) {
+        var srcCol = null;
+        document.querySelectorAll('.kan-col').forEach(function (c) {
+          if (c === targetCol) return;
+          var r = c.getBoundingClientRect();
+          if (from.left >= r.left - 1 && from.left <= r.right + 1) srcCol = c;
+        });
+        if (srcCol) cols.push(srcCol);
+      }
+
+      cols.forEach(function (col) {
+        col.querySelectorAll('.kan-item[data-actid]').forEach(function (card) {
+          if (card === el) return;                // 被移动的那张已经处理过
+          var old = first[card.getAttribute('data-actid')];
+          if (!old) return;
+          var now = card.getBoundingClientRect();
+          var ox = old.left - now.left;
+          var oy = old.top - now.top;
+          if (!ox && !oy) return;                 // 没被挤动/没被抽走痕迹的卡不播
+          CP.ui.flipSlide(card, ox, oy);
+        });
       });
     }
 

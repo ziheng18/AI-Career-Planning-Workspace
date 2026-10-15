@@ -317,7 +317,79 @@ async function main() {
       shifted.map(function (o) { return (lastA[o.id] - y0[o.id] >= 0 ? '+' : '') + (lastA[o.id] - y0[o.id]); }).join(', '));
   }
 
-  /* ④ 已完成用另一套反馈（成功绿 + 轻微放大），与进行中区分开 */
+  /* ④ 补位：把某列**靠前**的卡移走，它后面的卡应平滑上移填掉空缺。
+     这是 ③ 的对称情形——③ 管"插入时下面让位"，这里管"抽走时下面补位"，
+     同一段代码（flipSlide 同时处理源列与目标列）负责，但两条路径要分别验证：
+     我只做了目标列时，补位就是不动的。 */
+  await ev([
+    '(function(){',
+    '  var a = CP.demoArchive();',
+    '  a.actions.forEach(function(x, i){ x.status = i < 5 ? "doing" : "todo"; });',
+    '  CP.ui.archive = a; CP.store.save(a); CP.ui.go("action");',
+    '  return true;',
+    '})()'
+  ].join('\n'));
+  await sleep(800);
+
+  var fill = await ev([
+    '(function(){',
+    '  var cards = [].slice.call(document.querySelectorAll(\'.kan-col[data-col="doing"] .kan-item[data-actid]\'));',
+    '  if (cards.length < 5) return Promise.resolve({err:"进行中列卡片不足：" + cards.length});',
+    '  var moved = cards[1];                       // 第 2 张，后面还有 3 张',
+    '  var staying = [];',
+    '  cards.forEach(function(e, i){',
+    '    if (i === 1) return;',
+    '    staying.push({ id: e.getAttribute("data-actid"), y0: Math.round(e.getBoundingClientRect().top) });',
+    '  });',
+    '  var frames = [];',
+    '  function snap(){',
+    '    var row = {};',
+    '    staying.forEach(function(o){',
+    '      var e = document.querySelector(\'.kan-item[data-actid="\' + o.id + \'"]\');',
+    '      row[o.id] = e ? Math.round(e.getBoundingClientRect().top) : null;',
+    '    });',
+    '    frames.push(row);',
+    '  }',
+    '  snap();',
+    '  moved.querySelector(\'[data-to="todo"]\').click();',
+    '  snap();',
+    '  return new Promise(function(r2){',
+    '    var n = 0;',
+    '    function step(){ snap(); n++; if (n < 20) requestAnimationFrame(step); else r2({staying:staying, frames:frames}); }',
+    '    requestAnimationFrame(step);',
+    '  });',
+    '})()'
+  ].join('\n'));
+
+  if (fill && fill.err) {
+    record('移出后剩下的卡片会补位', false, fill.err);
+  } else {
+    var fy0 = fill.frames[0];
+    var flast = fill.frames[fill.frames.length - 1];
+    var fShift = fill.staying.filter(function (o) {
+      return flast[o.id] != null && fy0[o.id] != null && flast[o.id] !== fy0[o.id];
+    });
+    var fUp = fShift.filter(function (o) { return flast[o.id] < fy0[o.id]; });
+    record('移出后剩下的卡片会向上补位', fShift.length > 0 && fUp.length === fShift.length,
+      fShift.length + ' / ' + fill.staying.length + ' 张发生位移，其中向上 ' + fUp.length + ' 张；'
+      + fShift.map(function (o) { return 'y ' + fy0[o.id] + '→' + flast[o.id]; }).join('，'));
+
+    var fSmooth = fShift.filter(function (o) {
+      var vals = fill.frames.map(function (f) { return f[o.id]; }).filter(function (v) { return v != null; });
+      var uniq = vals.filter(function (v, i) { return vals.indexOf(v) === i; });
+      return uniq.length > 2;
+    });
+    record('补位是平滑移动（有中间态）而非瞬移', fSmooth.length === fShift.length && fShift.length > 0,
+      fSmooth.length + ' / ' + fShift.length + ' 张有中间态');
+
+    // 被移走那张**之前**的卡不该动：它前面的位置没有变化。
+    // staying 里第一个就是它（移走的是第 2 张，下标从 0 数）。
+    var firstCard = fill.staying[0];
+    record('被移走那张之前的卡片原地不动', flast[firstCard.id] === firstCard.y0,
+      'y ' + firstCard.y0 + '→' + flast[firstCard.id]);
+  }
+
+  /* ⑤ 已完成用另一套反馈（成功绿 + 轻微放大），与进行中区分开 */
   var doneCls = await ev([
     '(function(){',
     '  var card = document.querySelector(".kan-col[data-col=\\"todo\\"] .kan-item[data-actid]");',
