@@ -607,19 +607,19 @@
       if (!el || !first) return;
       var from = first[actId];
       var reduced = CP.ui.motionReduced && CP.ui.motionReduced();
-      if (from && !reduced && typeof el.animate === 'function') {
+
+      // 被移走的那张卡：从旧位置滑到新位置。
+      // flipSlide 会先把它设成不可见，避免"先在终点闪一下再滑过去"。
+      var dx = 0, dy = 0;
+      if (from) {
         var r = el.getBoundingClientRect();
-        var dx = from.left - r.left;
-        var dy = from.top - r.top;
-        if (dx || dy) {
-          el.animate([
-            { transform: 'translate(' + dx + 'px,' + dy + 'px)' },
-            { transform: 'translate(0,0)' }
-          ], { duration: 300, easing: 'cubic-bezier(.22,.61,.36,1)' });
-        }
+        dx = from.left - r.left;
+        dy = from.top - r.top;
       }
-      // 落位反馈：只在真的换了列时才播（点当前列的按钮不该有任何动静）
-      if (!reduced && to) {
+      CP.ui.flipSlide(el, dx, dy, function () {
+        // 落位反馈放在滑动**之后**：滑行期间元素是隐藏的，
+        // 若同时播会被藏掉一半。先滑到位、再亮一下，层次也更清楚。
+        if (reduced || !to) return;
         el.classList.remove('kan-land', 'kan-land-done');
         void el.offsetWidth;
         el.classList.add(to === 'done' ? 'kan-land-done' : 'kan-land');
@@ -627,7 +627,27 @@
           el.classList.remove('kan-land', 'kan-land-done');
           el.removeEventListener('animationend', onLand);
         });
-      }
+      });
+
+      // ★ 目标列里原有卡片必须避让。
+      //   被移动的卡会**插进**目标列的中间——列序按 actions 数组顺序排，
+      //   它在新列里排第几取决于自己在数组里的下标。插在它后面的那些卡
+      //   整体下移一格：DOM 顺序没变，但视觉位置变了。
+      //   逐个按"自身新旧位置差"补一段滑动，它们才是平滑让位而不是生硬跳过去。
+      //   只处理被移动的那一张不够——用户看到的是整列在避让。
+      var targetCol = el.closest('.kan-col');
+      if (!targetCol) return;
+      document.querySelectorAll('.kan-item[data-actid]').forEach(function (card) {
+        if (card === el) return;                  // 被移动的那张已经处理过
+        if (card.closest('.kan-col') !== targetCol) return;
+        var old = first[card.getAttribute('data-actid')];
+        if (!old) return;
+        var now = card.getBoundingClientRect();
+        var ox = old.left - now.left;
+        var oy = old.top - now.top;
+        if (!ox && !oy) return;                   // 没被挤动的卡不播
+        CP.ui.flipSlide(card, ox, oy);
+      });
     }
 
     document.querySelectorAll('[data-mv]').forEach(function (b) {

@@ -112,6 +112,7 @@ var TRACK = [
   '      x: Math.round(r.left), y: Math.round(r.top),',
   '      col: col ? col.getAttribute("data-col") : "?",',
   '      cls: e.className,',
+  '      op: getComputedStyle(e).opacity,',
   '      shadow: getComputedStyle(e).boxShadow,',
   '      border: getComputedStyle(e).borderTopColor',
   '    });',
@@ -205,6 +206,22 @@ async function main() {
     record('跨列移动有中间态（真的在滑动，不是瞬移）', ux > 2 || uy > 2,
       '不同 x ' + ux + ' 个、不同 y ' + uy + ' 个');
 
+    /* ★ 不许"先在终点闪一下再滑过去"。
+       重渲染后元素已经在新位置了；如果动画没能在第一次绘制前生效，
+       用户就会看到它先在终点出现一两帧。修法是先把元素设成不可见、
+       等两帧（此时动画必然已生效）再恢复。
+       判定方式：找出**第一个可见帧**，它的位置必须是动画的**起点**，
+       不能是终点 —— 否则就是闪过了。 */
+    var dest = { x: last.x, y: last.y };
+    var firstVisible = frames.filter(function (f) { return Number(f.op) > 0; })[0];
+    var flashed = firstVisible && Math.abs(firstVisible.x - dest.x) < 2 && Math.abs(firstVisible.y - dest.y) < 2
+      && (Math.abs(firstVisible.x - frames[0].x) > 2 || Math.abs(firstVisible.y - frames[0].y) > 2);
+    record('不会先在终点闪现（首个可见帧在起点而非终点）', !flashed,
+      firstVisible
+        ? ('首个可见帧 x=' + firstVisible.x + ' y=' + firstVisible.y
+          + '；起点 x=' + frames[0].x + ' y=' + frames[0].y + '；终点 x=' + dest.x + ' y=' + dest.y)
+        : '没有可见帧（可能整段被隐藏）');
+
     var landed = frames.filter(function (f) { return /kan-land/.test(f.cls); });
     record('落位后播进行中的状态色反馈', landed.length > 0,
       landed.length + ' 帧带 kan-land；边框=' + (landed[0] ? landed[0].border : '—'));
@@ -232,7 +249,75 @@ async function main() {
       '终点列 ' + last2.col);
   }
 
-  /* ③ 已完成用另一套反馈（成功绿 + 轻微放大），与进行中区分开 */
+  /* ③ 避让：目标列原有的卡片必须平滑下移让位。
+     构造要点——让被移动的卡在数组里**排在目标列某些卡之前**，
+     这样它插入目标列中部，其后的卡必须下移。
+     若只是追加到列末，原有卡片根本不动，测不出避让（我第一版就是这样白测的）。 */
+  await ev([
+    '(function(){',
+    '  var a = CP.demoArchive();',
+    '  a.actions.forEach(function(x, i){ x.status = i === 0 ? "todo" : (i < 5 ? "doing" : "todo"); });',
+    '  CP.ui.archive = a; CP.store.save(a); CP.ui.go("action");',
+    '  return true;',
+    '})()'
+  ].join('\n'));
+  await sleep(800);
+
+  var avoid = await ev([
+    '(function(){',
+    '  var card = document.querySelector(\'.kan-col[data-col="todo"] .kan-item[data-actid]\');',
+    '  if (!card) return Promise.resolve({err:"待做列没卡"});',
+    '  var staying = [];',
+    '  document.querySelectorAll(\'.kan-col[data-col="doing"] .kan-item[data-actid]\').forEach(function(e){',
+    '    staying.push({id:e.getAttribute("data-actid"), y0: Math.round(e.getBoundingClientRect().top)});',
+    '  });',
+    '  if (!staying.length) return Promise.resolve({err:"进行中列原本没有卡片"});',
+    '  var frames = [];',
+    '  function snap(){',
+    '    var row = {};',
+    '    staying.forEach(function(o){',
+    '      var e = document.querySelector(\'.kan-item[data-actid="\' + o.id + \'"]\');',
+    '      row[o.id] = e ? Math.round(e.getBoundingClientRect().top) : null;',
+    '    });',
+    '    frames.push(row);',
+    '  }',
+    '  snap();',
+    '  card.querySelector(\'[data-to="doing"]\').click();',
+    '  snap();',
+    '  return new Promise(function(r2){',
+    '    var n = 0;',
+    '    function step(){ snap(); n++; if (n < 20) requestAnimationFrame(step);',
+    '      else r2({staying:staying, frames:frames}); }',
+    '    requestAnimationFrame(step);',
+    '  });',
+    '})()'
+  ].join('\n'));
+
+  if (avoid && avoid.err) {
+    record('目标列原有卡片会避让', false, avoid.err);
+  } else {
+    var y0 = avoid.frames[0];
+    var lastA = avoid.frames[avoid.frames.length - 1];
+    var shifted = avoid.staying.filter(function (o) {
+      return lastA[o.id] != null && y0[o.id] != null && Math.abs(lastA[o.id] - y0[o.id]) > 2;
+    });
+    var smooth = shifted.filter(function (o) {
+      var vals = avoid.frames.map(function (f) { return f[o.id]; }).filter(function (v) { return v != null; });
+      var uniq = vals.filter(function (v, i) { return vals.indexOf(v) === i; });
+      return uniq.length > 2;      // 有中间态才算平滑
+    });
+    record('目标列原有卡片会下移让位', shifted.length > 0,
+      shifted.length + ' / ' + avoid.staying.length + ' 张卡发生位移；'
+      + shifted.map(function (o) { return 'y ' + y0[o.id] + '→' + lastA[o.id]; }).join('，'));
+    record('让位是平滑移动（有中间态）而非瞬移', smooth.length === shifted.length && shifted.length > 0,
+      smooth.length + ' / ' + shifted.length + ' 张有中间态');
+    // 让位方向必须是"向下"：新卡插在上面，下面的卡被推下去
+    var allDown = shifted.every(function (o) { return lastA[o.id] > y0[o.id]; });
+    record('让位方向为向下', allDown,
+      shifted.map(function (o) { return (lastA[o.id] - y0[o.id] >= 0 ? '+' : '') + (lastA[o.id] - y0[o.id]); }).join(', '));
+  }
+
+  /* ④ 已完成用另一套反馈（成功绿 + 轻微放大），与进行中区分开 */
   var doneCls = await ev([
     '(function(){',
     '  var card = document.querySelector(".kan-col[data-col=\\"todo\\"] .kan-item[data-actid]");',

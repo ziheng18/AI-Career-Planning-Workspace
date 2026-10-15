@@ -288,6 +288,67 @@
     },
 
     /**
+     * 读元素内联 style 里第一个时间值（毫秒）。
+     * 用来知道"这个元素上的内联隐藏/动画还要多久"，以安排兜底恢复。
+     */
+    inlineDurationMs: function (el) {
+      var s = (el && el.getAttribute && el.getAttribute('style')) || '';
+      var m = /(\d+(?:\.\d+)?)\s*(ms|s)\b/.exec(s);
+      if (!m) return 0;
+      return m[2] === 's' ? Number(m[1]) * 1000 : Number(m[1]);
+    },
+
+    /**
+     * 播放"元素从旧位置滑到新位置，且全程不闪"的动画。
+     *
+     * ★ 为什么要把元素先隐藏到动画真正开始：
+     *   重渲染之后元素已经在新位置了。动画对象虽然同步创建，但浏览器可能在
+     *   动画生效之前先画了一帧——用户看到的就是"卡片先在终点闪一下，再滑过去"。
+     *   实测到过一个真实案例：连续两帧出现在终点，第三帧才跳回起点开始滑。
+     *   所以这里先把它设成不可见（内联 style，下一次重渲染自然带走），
+     *   等两帧后再恢复。
+     *
+     * ★ 为什么等两帧：requestAnimationFrame 的回调在**绘制之前**执行，
+     *   所以要退两帧，才能保证"动画已生效的那次绘制"先发生。
+     *
+     * @param {Element} el    重渲染后找到的新元素
+     * @param {number} dx      旧位置相对新位置的横向差值
+     * @param {number} dy      纵向差值
+     * @param {Function} done  滑完（或被跳过）后的回调
+     */
+    flipSlide: function (el, dx, dy, done) {
+      var finish = done || function () { };
+      if (!el) { finish(); return; }
+      var reduced = CP.ui.motionReduced && CP.ui.motionReduced();
+      var canAnimate = (typeof el.animate === 'function') && !reduced && (dx || dy);
+      if (!canAnimate) { finish(); return; }
+
+      // 先隐藏：内联样式，下一次重渲染自然带走；下面的兜底也会摘掉
+      el.style.opacity = '0';
+      var fallback = 0;
+      try {
+        fallback = setTimeout(function () {
+          if (el.style && el.style.opacity === '0') el.style.opacity = '';
+          finish();
+        }, 1000);
+      } catch (e) { /* 测试环境可能没有真正的定时器语义 */ }
+
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          el.style.opacity = '';
+          var a = el.animate([
+            { transform: 'translate(' + dx + 'px,' + dy + 'px)' },
+            { transform: 'translate(0,0)' }
+          ], { duration: 300, easing: 'cubic-bezier(.22,.61,.36,1)' });
+          a.addEventListener('finish', function () {
+            try { clearTimeout(fallback); } catch (e) { }
+            finish();
+          });
+        });
+      });
+    },
+
+    /**
      * 给图表里的图形元素播入场动画。
      *
      * 为什么由界面层做而不是写在 界面/图表.js 里：

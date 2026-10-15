@@ -1230,6 +1230,35 @@ test('任务状态可在三列之间流转', function () {
   eq(CP.ui.archive.actions[idx].status, 'done');
 });
 
+test('滑动动画带"先隐藏再播"的机制，防止终点闪现', function () {
+  // 重渲染后元素已经在新位置了。如果动画没能在第一次绘制前生效，
+  // 用户会看到它"先在终点闪一下，再滑过去"（用户实际报过）。
+  // 修法是先把元素设成不可见、等两帧（此时动画必然已生效）再恢复。
+  //
+  // 为什么用源码断言而不是行为断言：假 DOM 没有绘制，量不到"闪现"；
+  // 真浏览器那层（测试/看板动效诊断.cjs）能验证当前行为正确，
+  // 但把机制删掉之后不一定立刻失败。所以这里直接守住机制本身——
+  // 缺了它不会报错、只会闪，属于最容易在重构里丢掉的一类代码。
+  var src = fs.readFileSync(path.join(ROOT, '界面', '应用.js'), 'utf8');
+  has(src, 'flipSlide: function', '缺少 flipSlide（滑动动画的统一入口）');
+  has(src, "el.style.opacity = '0'", 'flipSlide 必须先把元素设成不可见，否则会在终点闪现');
+  // 必须退两帧：rAF 回调在绘制之前执行，退一帧不够
+  var body = src.slice(src.indexOf('flipSlide: function'));
+  body = body.slice(0, body.indexOf('\n    },'));
+  var rafCount = (body.match(/requestAnimationFrame\(/g) || []).length;
+  eq(rafCount, 2, 'flipSlide 必须嵌套两层 requestAnimationFrame（退两帧才保证动画已生效），实际 ' + rafCount + ' 层');
+  has(body, "el.style.opacity = ''", '恢复可见的代码丢了');
+  // 兜底：万一动画没触发，也要把元素恢复出来，不能永久隐藏
+  has(body, 'setTimeout(', 'flipSlide 缺少兜底恢复（动画不触发时元素会永久隐藏）');
+
+  // 看板的滑动必须走 flipSlide，不能退回裸 animate（那样就没有隐藏机制）
+  var page = fs.readFileSync(path.join(ROOT, '界面', '页面.js'), 'utf8');
+  var kanban = page.slice(page.indexOf('function kanFlipPlay'));
+  kanban = kanban.slice(0, kanban.indexOf('\n    document.querySelectorAll'));
+  ok(kanban.indexOf('CP.ui.flipSlide(') >= 0, '看板滑动必须走 CP.ui.flipSlide');
+  ok(kanban.indexOf('el.animate(') < 0, '看板里不应再出现裸 el.animate（会绕过隐藏机制）');
+});
+
 test('看板列与卡片都带动画定位标记，且已在该列时不重复渲染', function () {
   // 滑动动画本身靠真浏览器验证（测试/看板动效诊断.cjs）。
   // 假 DOM 没有排版，量不到位置，所以这里只测动画成立的两个结构前提：
